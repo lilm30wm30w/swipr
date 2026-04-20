@@ -42,7 +42,8 @@
           "photosPermission": "Swipr needs access to your photos to add item images.",
           "cameraPermission": "Swipr needs access to your camera to take item photos."
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "extra": {
       "eas": {

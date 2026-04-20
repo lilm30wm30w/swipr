@@ -1,41 +1,282 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import {
-  View, Text, FlatList, TextInput, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform, SafeAreaView,
+  View, Text, FlatList, TextInput, StyleSheet, Image,
+  KeyboardAvoidingView, Platform, Animated, Easing,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
+import GradientView from '../../components/GradientView';
+import PressableScale from '../../components/PressableScale';
+import EmptyState from '../../components/EmptyState';
+import TradeProposalCard from '../../components/TradeProposalCard';
+import { StackScreenProps } from '@react-navigation/stack';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../theme/colors';
-import { Message, MainStackParamList } from '../../types';
+import { Message, MainStackParamList, Match, Item, TradeProposal } from '../../types';
+import { haptic } from '../../lib/haptics';
+import { grantAchievement } from '../../lib/achievements';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 
-type Props = NativeStackScreenProps<MainStackParamList, 'Chat'>;
+type Props = StackScreenProps<MainStackParamList, 'Chat'>;
+
+function MessageBubble({ message, isMine, isNew }: { message: Message; isMine: boolean; isNew: boolean }) {
+  const anim = useRef(new Animated.Value(isNew ? 0 : 1)).current;
+  useEffect(() => {
+    if (isNew) {
+      Animated.spring(anim, { toValue: 1, useNativeDriver: true, damping: 14, stiffness: 150 }).start();
+    }
+  }, []);
+
+  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
+  return (
+    <Animated.View
+      style={[
+        styles.messageRow,
+        isMine && styles.messageRowMine,
+        { opacity: anim, transform: [{ translateY }] },
+      ]}
+    >
+      <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}>
+        <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{message.content}</Text>
+        <Text style={[styles.time, isMine && styles.timeMine]}>
+          {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </Text>
+      </View>
+    </Animated.View>
+  );
+}
+
+function TypingIndicator() {
+  const dots = [useRef(new Animated.Value(0.3)).current, useRef(new Animated.Value(0.3)).current, useRef(new Animated.Value(0.3)).current];
+  useEffect(() => {
+    const loops = dots.map((d, i) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(i * 160),
+          Animated.timing(d, { toValue: 1, duration: 400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.timing(d, { toValue: 0.3, duration: 400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          Animated.delay(320 - i * 160),
+        ])
+      )
+    );
+    loops.forEach((l) => l.start());
+    return () => loops.forEach((l) => l.stop());
+  }, []);
+  return (
+    <View style={[styles.messageRow]}>
+      <View style={[styles.bubble, styles.bubbleTheirs, styles.typingBubble]}>
+        {dots.map((d, i) => (
+          <Animated.View key={i} style={[styles.typingDot, { opacity: d, transform: [{ scale: d }] }]} />
+        ))}
+      </View>
+    </View>
+  );
+}
 
 export default function ChatScreen({ route, navigation }: Props) {
   const { matchId, matchedUser } = route.params;
   const { user } = useAuth();
+  const toast = useToast();
+  const insets = useSafeAreaInsets();
+  const headerHeight = insets.top + 52;
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [theyAreTyping, setTheyAreTyping] = useState(false);
+  const [match, setMatch] = useState<Match | null>(null);
+  const [myItem, setMyItem] = useState<Item | null>(null);
+  const [theirItem, setTheirItem] = useState<Item | null>(null);
+  const [proposal, setProposal] = useState<TradeProposal | null>(null);
+  const [proposalBusy, setProposalBusy] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const knownIds = useRef<Set<string>>(new Set());
+  const typingChannelRef = useRef<RealtimeChannel | null>(null);
+  const lastTypingSentRef = useRef(0);
+  const typingClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerTransparent: true,
+      headerTitle: () => (
+        <View style={styles.headerTitleWrap}>
+          {matchedUser.avatar_url ? (
+            <Image source={{ uri: matchedUser.avatar_url }} style={styles.headerAvatar} />
+          ) : (
+            <GradientView colors={[colors.primary, colors.primaryDark]} style={styles.headerAvatar}>
+              <Text style={styles.headerAvatarInitial}>{matchedUser.username?.[0]?.toUpperCase() ?? '?'}</Text>
+            </GradientView>
+          )}
+          <View>
+            <Text style={styles.headerUsername}>@{matchedUser.username}</Text>
+            {theyAreTyping && <Text style={styles.headerTyping}>typing...</Text>}
+          </View>
+        </View>
+      ),
+      headerBackground: () => (
+        <BlurView intensity={Platform.OS === 'ios' ? 60 : 100} tint="dark" style={StyleSheet.absoluteFill}>
+          <View style={styles.headerBorder} />
+        </BlurView>
+      ),
+    });
+  }, [navigation, matchedUser, theyAreTyping]);
 
   useEffect(() => {
-    navigation.setOptions({ title: `@${matchedUser.username}` });
     fetchMessages();
+    fetchMatch();
+    fetchProposal();
 
-    const channel = supabase
-      .channel(`chat:${matchId}`)
+    const chan = supabase
+      .channel(`chat:${matchId}`, { config: { broadcast: { self: false } } })
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'messages',
         filter: `match_id=eq.${matchId}`,
       }, (payload) => {
-        setMessages((prev) => [...prev, payload.new as Message]);
+        const m = payload.new as Message;
+        if (knownIds.current.has(m.id)) return;
+        knownIds.current.add(m.id);
+        setMessages((prev) => [...prev, m]);
+        if (m.sender_id !== user?.id) haptic.tap();
+      })
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'trade_proposals',
+        filter: `match_id=eq.${matchId}`,
+      }, () => {
+        fetchProposal();
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'matches',
+        filter: `id=eq.${matchId}`,
+      }, (payload) => {
+        setMatch((prev) => prev ? { ...prev, ...(payload.new as Match) } : prev);
+      })
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        const senderId = (payload.payload as { user_id: string } | undefined)?.user_id;
+        if (!senderId || senderId === user?.id) return;
+        setTheyAreTyping(true);
+        if (typingClearRef.current) clearTimeout(typingClearRef.current);
+        typingClearRef.current = setTimeout(() => setTheyAreTyping(false), 2800);
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    typingChannelRef.current = chan;
+
+    return () => {
+      supabase.removeChannel(chan);
+      if (typingClearRef.current) clearTimeout(typingClearRef.current);
+    };
   }, [matchId]);
+
+  async function fetchMatch() {
+    if (!user) return;
+    const { data } = await supabase
+      .from('matches')
+      .select(`
+        *,
+        items_item1:items!matches_item1_id_fkey(id, user_id, title, images, category, condition, description, is_available, created_at),
+        items_item2:items!matches_item2_id_fkey(id, user_id, title, images, category, condition, description, is_available, created_at)
+      `)
+      .eq('id', matchId)
+      .single();
+    if (!data) return;
+    const isUser1 = data.user1_id === user.id;
+    setMatch(data as Match);
+    setMyItem(isUser1 ? (data as any).items_item1 : (data as any).items_item2);
+    setTheirItem(isUser1 ? (data as any).items_item2 : (data as any).items_item1);
+  }
+
+  async function fetchProposal() {
+    const { data } = await supabase
+      .from('trade_proposals')
+      .select('*')
+      .eq('match_id', matchId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    setProposal((data as TradeProposal) ?? null);
+  }
+
+  async function handlePropose() {
+    if (!user) return;
+    setProposalBusy(true);
+    haptic.press();
+    const { error } = await supabase.from('trade_proposals').insert({
+      match_id: matchId,
+      proposer_id: user.id,
+      status: 'pending',
+    });
+    setProposalBusy(false);
+    if (error) { toast.error('Failed to propose'); return; }
+    toast.success('Trade proposed');
+    fetchProposal();
+  }
+
+  async function handleWithdraw() {
+    if (!proposal) return;
+    setProposalBusy(true);
+    haptic.tap();
+    const { error } = await supabase.from('trade_proposals').delete().eq('id', proposal.id);
+    setProposalBusy(false);
+    if (error) { toast.error('Failed to withdraw'); return; }
+    toast.success('Proposal withdrawn');
+    setProposal(null);
+  }
+
+  async function handleDecline() {
+    if (!proposal) return;
+    setProposalBusy(true);
+    haptic.tap();
+    const { error } = await supabase.from('trade_proposals').update({
+      status: 'declined',
+      responded_at: new Date().toISOString(),
+    }).eq('id', proposal.id);
+    setProposalBusy(false);
+    if (error) { toast.error('Failed to decline'); return; }
+    toast.success('Trade declined');
+    fetchProposal();
+  }
+
+  async function handleAccept() {
+    if (!proposal || !user) return;
+    setProposalBusy(true);
+    const { error: pErr } = await supabase.from('trade_proposals').update({
+      status: 'accepted',
+      responded_at: new Date().toISOString(),
+    }).eq('id', proposal.id);
+
+    if (pErr) {
+      setProposalBusy(false);
+      toast.error('Failed to accept');
+      return;
+    }
+
+    await supabase.from('matches').update({ status: 'completed' }).eq('id', matchId);
+    if (match) {
+      await supabase.from('items').update({ is_available: false })
+        .in('id', [match.item1_id, match.item2_id]);
+    }
+
+    if (match) {
+      await grantAchievement(match.user1_id, 'first_trade');
+      await grantAchievement(match.user2_id, 'first_trade');
+
+      for (const uid of [match.user1_id, match.user2_id]) {
+        const { count } = await supabase
+          .from('matches')
+          .select('id', { count: 'exact', head: true })
+          .or(`user1_id.eq.${uid},user2_id.eq.${uid}`)
+          .eq('status', 'completed');
+        if (count !== null && count >= 3) await grantAchievement(uid, 'three_trades');
+      }
+    }
+
+    setProposalBusy(false);
+    haptic.match();
+    toast.success('Trade completed! 🎉');
+    fetchProposal();
+    fetchMatch();
+  }
 
   async function fetchMessages() {
     const { data } = await supabase
@@ -43,50 +284,87 @@ export default function ChatScreen({ route, navigation }: Props) {
       .select('*')
       .eq('match_id', matchId)
       .order('created_at', { ascending: true });
-    if (data) setMessages(data);
+    if (data) {
+      data.forEach((m) => knownIds.current.add(m.id));
+      setMessages(data);
+    }
+  }
+
+  function handleInputChange(text: string) {
+    setInput(text);
+    const now = Date.now();
+    if (!user || !typingChannelRef.current) return;
+    if (now - lastTypingSentRef.current > 1500 && text.length > 0) {
+      lastTypingSentRef.current = now;
+      typingChannelRef.current.send({
+        type: 'broadcast',
+        event: 'typing',
+        payload: { user_id: user.id },
+      });
+    }
   }
 
   async function sendMessage() {
     if (!input.trim() || !user) return;
+    const content = input.trim();
+    setInput('');
     setSending(true);
+    haptic.tap();
     const { error } = await supabase.from('messages').insert({
       match_id: matchId,
       sender_id: user.id,
-      content: input.trim(),
+      content,
     });
-    if (!error) setInput('');
+    if (error) {
+      toast.error('Failed to send');
+      setInput(content);
+    }
     setSending(false);
   }
 
-  function renderMessage({ item }: { item: Message }) {
-    const isMine = item.sender_id === user?.id;
-    return (
-      <View style={[styles.messageRow, isMine && styles.messageRowMine]}>
-        <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}>
-          <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{item.content}</Text>
-          <Text style={[styles.time, isMine && styles.timeMine]}>
-            {new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
   return (
-    <SafeAreaView style={styles.container}>
-      <LinearGradient colors={[colors.background, '#0D0D1A']} style={StyleSheet.absoluteFill} />
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
+      >
         <FlatList
           ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
-          renderItem={renderMessage}
-          contentContainerStyle={styles.messageList}
+          renderItem={({ item, index }) => (
+            <MessageBubble
+              message={item}
+              isMine={item.sender_id === user?.id}
+              isNew={index === messages.length - 1}
+            />
+          )}
+          contentContainerStyle={[styles.messageList, { paddingTop: headerHeight + 12 }]}
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          ListHeaderComponent={
+            match ? (
+              <TradeProposalCard
+                myItem={myItem}
+                theirItem={theirItem}
+                proposal={proposal}
+                iAmProposer={proposal?.proposer_id === user?.id}
+                matchCompleted={match.status === 'completed'}
+                busy={proposalBusy}
+                onPropose={handlePropose}
+                onAccept={handleAccept}
+                onDecline={handleDecline}
+                onWithdraw={handleWithdraw}
+              />
+            ) : null
+          }
+          ListFooterComponent={theyAreTyping ? <TypingIndicator /> : null}
           ListEmptyComponent={
-            <View style={styles.emptyChat}>
-              <Text style={styles.emptyChatText}>Say hi and start negotiating your trade! 👋</Text>
-            </View>
+            <EmptyState
+              icon="👋"
+              title="Say hi!"
+              subtitle={`You and @${matchedUser.username} matched. Break the ice and start negotiating.`}
+            />
           }
         />
 
@@ -96,18 +374,24 @@ export default function ChatScreen({ route, navigation }: Props) {
             placeholder="Type a message..."
             placeholderTextColor={colors.textMuted}
             value={input}
-            onChangeText={setInput}
+            onChangeText={handleInputChange}
             multiline
             maxLength={500}
           />
-          <TouchableOpacity onPress={sendMessage} disabled={sending || !input.trim()} style={styles.sendBtn}>
-            <LinearGradient
+          <PressableScale
+            onPress={sendMessage}
+            disabled={sending || !input.trim()}
+            style={styles.sendBtn}
+            hapticOnPressIn="none"
+            pressedScale={0.88}
+          >
+            <GradientView
               colors={input.trim() ? [colors.primary, colors.primaryDark] : [colors.border, colors.border]}
               style={styles.sendGradient}
             >
               <Text style={styles.sendIcon}>↑</Text>
-            </LinearGradient>
-          </TouchableOpacity>
+            </GradientView>
+          </PressableScale>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -117,41 +401,63 @@ export default function ChatScreen({ route, navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   flex: { flex: 1 },
-  messageList: { padding: 16, gap: 8, paddingBottom: 8 },
+  headerTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerAvatar: {
+    width: 34, height: 34, borderRadius: 17,
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 1.5, borderColor: colors.primary,
+  },
+  headerAvatarInitial: { color: '#fff', fontSize: 14, fontWeight: '800' },
+  headerUsername: { color: colors.text, fontSize: 15, fontWeight: '800' },
+  headerTyping: { color: colors.primaryLight, fontSize: 11, fontWeight: '600' },
+  headerBorder: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    height: StyleSheet.hairlineWidth, backgroundColor: colors.border,
+  },
+  messageList: { paddingHorizontal: 16, gap: 4, paddingBottom: 12, flexGrow: 1 },
   messageRow: { flexDirection: 'row', justifyContent: 'flex-start', marginBottom: 4 },
   messageRowMine: { justifyContent: 'flex-end' },
   bubble: {
-    maxWidth: '75%' as const, padding: 12, borderRadius: 18,
+    maxWidth: '75%' as const, paddingHorizontal: 14, paddingVertical: 10,
+    borderRadius: 20,
     backgroundColor: colors.surfaceElevated, borderWidth: 1, borderColor: colors.border,
-    borderBottomLeftRadius: 4,
+    borderBottomLeftRadius: 6,
   },
   bubbleTheirs: {},
   bubbleMine: {
     backgroundColor: colors.primary, borderColor: colors.primaryDark,
-    borderBottomLeftRadius: 18, borderBottomRightRadius: 4,
+    borderBottomLeftRadius: 20, borderBottomRightRadius: 6,
   },
   bubbleText: { color: colors.text, fontSize: 15, lineHeight: 20 },
   bubbleTextMine: { color: '#fff' },
-  time: { fontSize: 10, color: colors.textMuted, marginTop: 4, alignSelf: 'flex-end' },
-  timeMine: { color: 'rgba(255,255,255,0.6)' },
-  emptyChat: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 },
-  emptyChatText: { color: colors.textSecondary, fontSize: 15, textAlign: 'center' },
+  time: { fontSize: 10, color: colors.textMuted, marginTop: 3, alignSelf: 'flex-end' },
+  timeMine: { color: 'rgba(255,255,255,0.65)' },
+  typingBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 14, paddingVertical: 12,
+  },
+  typingDot: {
+    width: 7, height: 7, borderRadius: 3.5,
+    backgroundColor: colors.primaryLight,
+  },
   inputRow: {
     flexDirection: 'row',
     padding: 12,
-    paddingBottom: 16,
+    paddingBottom: Platform.OS === 'ios' ? 12 : 16,
     gap: 10,
     alignItems: 'flex-end',
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.background,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(167,139,250,0.18)',
+    backgroundColor: 'rgba(10,5,20,0.78)',
   },
   input: {
     flex: 1,
     backgroundColor: colors.surfaceElevated,
     borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 11,
     color: colors.text,
     fontSize: 15,
     borderWidth: 1,
@@ -160,5 +466,5 @@ const styles = StyleSheet.create({
   },
   sendBtn: { width: 44, height: 44, borderRadius: 22, overflow: 'hidden' },
   sendGradient: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  sendIcon: { color: '#fff', fontSize: 20, fontWeight: '700' },
+  sendIcon: { color: '#fff', fontSize: 22, fontWeight: '800' },
 });

@@ -1,21 +1,29 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, Image,
-  SafeAreaView, FlatList, Alert, ActivityIndicator,
+  View, Text, StyleSheet, ScrollView, Image,
+  SafeAreaView, Alert, ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { LinearGradient } from 'expo-linear-gradient';
+import GradientView from '../../components/GradientView';
+import PressableScale from '../../components/PressableScale';
+import EmptyState from '../../components/EmptyState';
+import ProfileHero from '../../components/ProfileHero';
+import ProfileEditSheet from '../../components/ProfileEditSheet';
+import AchievementsRow from '../../components/AchievementsRow';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../theme/colors';
 import { Item } from '../../types';
+import { haptic } from '../../lib/haptics';
 
 export default function ProfileScreen() {
   const { user, profile, signOut, refreshProfile } = useAuth();
+  const toast = useToast();
   const [myItems, setMyItems] = useState<Item[]>([]);
-  const [loading, setLoading] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   useFocusEffect(useCallback(() => { fetchMyItems(); }, []));
 
@@ -31,7 +39,7 @@ export default function ProfileScreen() {
 
   async function handleAvatarChange() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') return;
+    if (status !== 'granted') { toast.error('Photo access needed'); return; }
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -51,34 +59,45 @@ export default function ProfileScreen() {
       const { data: { publicUrl } } = supabase.storage.from('items').getPublicUrl(path);
       await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', user.id);
       await refreshProfile();
+      toast.success('Avatar updated');
     } catch (e) {
-      Alert.alert('Error', 'Failed to update avatar');
+      toast.error('Failed to update avatar');
     } finally {
       setUploadingAvatar(false);
     }
   }
 
   async function toggleItemAvailability(item: Item) {
+    haptic.selection();
     await supabase.from('items').update({ is_available: !item.is_available }).eq('id', item.id);
     fetchMyItems();
   }
 
-  async function deleteItem(itemId: string) {
-    Alert.alert('Delete Item', 'Are you sure?', [
+  function confirmDelete(itemId: string) {
+    haptic.warning();
+    Alert.alert('Delete Item', 'Are you sure? This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete', style: 'destructive',
         onPress: async () => {
           await supabase.from('items').delete().eq('id', itemId);
+          toast.success('Item deleted');
           fetchMyItems();
         },
       },
     ]);
   }
 
-  function renderItem({ item }: { item: Item }) {
+  function confirmSignOut() {
+    Alert.alert('Sign Out', 'Are you sure?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign Out', style: 'destructive', onPress: signOut },
+    ]);
+  }
+
+  function renderItem(item: Item) {
     return (
-      <View style={styles.itemCard}>
+      <View key={item.id} style={styles.itemCard}>
         {item.images?.[0] ? (
           <Image source={{ uri: item.images[0] }} style={styles.itemImage} />
         ) : (
@@ -91,15 +110,24 @@ export default function ProfileScreen() {
           <Text style={styles.itemCategory}>{item.category}</Text>
         </View>
         <View style={styles.itemActions}>
-          <TouchableOpacity
+          <PressableScale
             style={[styles.availBtn, item.is_available && styles.availBtnActive]}
             onPress={() => toggleItemAvailability(item)}
+            hapticOnPressIn="none"
+            pressedScale={0.92}
           >
-            <Text style={styles.availBtnText}>{item.is_available ? 'Listed' : 'Unlisted'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => deleteItem(item.id)} style={styles.deleteBtn}>
+            <Text style={[styles.availBtnText, item.is_available && styles.availBtnTextActive]}>
+              {item.is_available ? 'Listed' : 'Unlisted'}
+            </Text>
+          </PressableScale>
+          <PressableScale
+            onPress={() => confirmDelete(item.id)}
+            style={styles.deleteBtn}
+            hapticOnPressIn="none"
+            pressedScale={0.85}
+          >
             <Text style={styles.deleteBtnText}>🗑</Text>
-          </TouchableOpacity>
+          </PressableScale>
         </View>
       </View>
     );
@@ -107,32 +135,41 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <LinearGradient colors={[colors.background, '#0D0D1A']} style={StyleSheet.absoluteFill} />
+      <ProfileHero />
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-        {/* Profile Header */}
         <View style={styles.profileHeader}>
-          <TouchableOpacity onPress={handleAvatarChange} style={styles.avatarContainer}>
+          <PressableScale onPress={handleAvatarChange} style={styles.avatarContainer} hapticOnPressIn="selection" pressedScale={0.94}>
             {profile?.avatar_url ? (
               <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
             ) : (
-              <LinearGradient colors={[colors.primary, colors.primaryDark]} style={styles.avatar}>
+              <GradientView colors={[colors.primary, colors.primaryDark]} style={styles.avatar}>
                 <Text style={styles.avatarInitial}>{profile?.username?.[0]?.toUpperCase() ?? '?'}</Text>
-              </LinearGradient>
+              </GradientView>
             )}
             {uploadingAvatar && (
               <View style={styles.avatarOverlay}><ActivityIndicator color="#fff" /></View>
             )}
-            <View style={styles.cameraBtn}><Text>📷</Text></View>
-          </TouchableOpacity>
+            <View style={styles.cameraBtn}><Text style={{ fontSize: 14 }}>📷</Text></View>
+          </PressableScale>
 
           <Text style={styles.displayName}>{profile?.full_name ?? profile?.username}</Text>
           <Text style={styles.username}>@{profile?.username}</Text>
           {profile?.bio && <Text style={styles.bio}>{profile.bio}</Text>}
           {profile?.location && <Text style={styles.location}>📍 {profile.location}</Text>}
+
+          <PressableScale
+            onPress={() => setEditOpen(true)}
+            style={styles.editBtn}
+            hapticOnPressIn="tap"
+            pressedScale={0.94}
+            accessibilityLabel="Edit profile"
+            accessibilityRole="button"
+          >
+            <Text style={styles.editBtnText}>Edit profile</Text>
+          </PressableScale>
         </View>
 
-        {/* Stats */}
         <View style={styles.statsRow}>
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>{myItems.length}</Text>
@@ -150,75 +187,93 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* My Items */}
+        <AchievementsRow userId={user?.id} />
+
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>My Listings</Text>
+          <Text style={styles.sectionCount}>{myItems.length}</Text>
         </View>
 
-        {myItems.map((item) => (
-          <View key={item.id}>{renderItem({ item })}</View>
-        ))}
+        {myItems.map(renderItem)}
 
         {myItems.length === 0 && (
-          <View style={styles.emptyItems}>
-            <Text style={styles.emptyText}>No items listed yet. Add something to trade!</Text>
-          </View>
+          <EmptyState
+            icon="📭"
+            title="No items listed yet"
+            subtitle="Tap the + tab to add your first item and start matching with traders."
+            compact
+          />
         )}
 
-        {/* Sign Out */}
-        <TouchableOpacity style={styles.signOutBtn} onPress={signOut}>
+        <PressableScale style={styles.signOutBtn} onPress={confirmSignOut} hapticOnPressIn="tap">
           <Text style={styles.signOutText}>Sign Out</Text>
-        </TouchableOpacity>
+        </PressableScale>
       </ScrollView>
+
+      <ProfileEditSheet visible={editOpen} onClose={() => setEditOpen(false)} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 20, paddingBottom: 40 },
+  content: { padding: 20, paddingTop: 96, paddingBottom: 40 },
   profileHeader: { alignItems: 'center', gap: 6, marginBottom: 24 },
-  avatarContainer: { position: 'relative', marginBottom: 4 },
+  avatarContainer: { position: 'relative', marginBottom: 6 },
   avatar: {
-    width: 96, height: 96, borderRadius: 48,
+    width: 104, height: 104, borderRadius: 52,
     justifyContent: 'center', alignItems: 'center',
     borderWidth: 3, borderColor: colors.primary,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 10,
   },
-  avatarInitial: { color: '#fff', fontSize: 38, fontWeight: '700' },
+  avatarInitial: { color: '#fff', fontSize: 42, fontWeight: '800' },
   avatarOverlay: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: 48, backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 52, backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center', alignItems: 'center',
   },
   cameraBtn: {
-    position: 'absolute', bottom: 0, right: 0,
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: colors.surfaceElevated, borderWidth: 1, borderColor: colors.border,
+    position: 'absolute', bottom: 2, right: 2,
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: colors.surfaceElevated, borderWidth: 2, borderColor: colors.primary,
     justifyContent: 'center', alignItems: 'center',
   },
-  displayName: { fontSize: 22, fontWeight: '700', color: colors.text },
-  username: { fontSize: 15, color: colors.primaryLight },
-  bio: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginTop: 4 },
-  location: { fontSize: 13, color: colors.textMuted },
+  displayName: { fontSize: 24, fontWeight: '800', color: colors.text, letterSpacing: -0.3 },
+  username: { fontSize: 15, color: colors.primaryLight, fontWeight: '600' },
+  bio: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginTop: 6, paddingHorizontal: 20, lineHeight: 20 },
+  location: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
+  editBtn: {
+    marginTop: 12,
+    paddingHorizontal: 16, paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(167,139,250,0.14)',
+    borderWidth: 1, borderColor: 'rgba(167,139,250,0.35)',
+  },
+  editBtnText: { color: colors.primaryLight, fontSize: 13, fontWeight: '700' },
   statsRow: {
     flexDirection: 'row',
     backgroundColor: colors.surfaceElevated,
-    borderRadius: 16,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.border,
     padding: 20,
-    marginBottom: 24,
+    marginBottom: 28,
   },
   statItem: { flex: 1, alignItems: 'center' },
-  statNumber: { fontSize: 24, fontWeight: '800', color: colors.text },
-  statLabel: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  statNumber: { fontSize: 26, fontWeight: '800', color: colors.text, letterSpacing: -0.5 },
+  statLabel: { fontSize: 12, color: colors.textSecondary, marginTop: 2, fontWeight: '600' },
   statDivider: { width: 1, backgroundColor: colors.border },
-  sectionHeader: { marginBottom: 12 },
-  sectionTitle: { fontSize: 18, fontWeight: '700', color: colors.text },
+  sectionHeader: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 14 },
+  sectionTitle: { fontSize: 20, fontWeight: '800', color: colors.text, letterSpacing: -0.3 },
+  sectionCount: { fontSize: 14, color: colors.textMuted, fontWeight: '600' },
   itemCard: {
     flexDirection: 'row',
     backgroundColor: colors.surfaceElevated,
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 12,
     alignItems: 'center',
     gap: 12,
@@ -226,27 +281,30 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  itemImage: { width: 52, height: 52, borderRadius: 10 },
+  itemImage: { width: 56, height: 56, borderRadius: 12 },
   itemImagePlaceholder: { backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
   placeholderIcon: { fontSize: 22 },
   itemInfo: { flex: 1, gap: 2 },
-  itemTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
+  itemTitle: { fontSize: 15, fontWeight: '700', color: colors.text },
   itemCategory: { fontSize: 12, color: colors.textSecondary, textTransform: 'capitalize' },
   itemActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   availBtn: {
-    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10,
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
   },
   availBtnActive: { backgroundColor: `${colors.primary}33`, borderColor: colors.primary },
-  availBtnText: { fontSize: 11, fontWeight: '600', color: colors.primaryLight },
+  availBtnText: { fontSize: 11, fontWeight: '700', color: colors.textMuted },
+  availBtnTextActive: { color: colors.primaryLight },
   deleteBtn: { width: 32, height: 32, justifyContent: 'center', alignItems: 'center' },
   deleteBtnText: { fontSize: 18 },
-  emptyItems: { paddingVertical: 20, alignItems: 'center' },
-  emptyText: { color: colors.textSecondary, fontSize: 14, textAlign: 'center' },
+  emptyItems: { paddingVertical: 40, alignItems: 'center', gap: 6 },
+  emptyIcon: { fontSize: 44, marginBottom: 4 },
+  emptyText: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  emptySubtext: { color: colors.textMuted, fontSize: 13 },
   signOutBtn: {
-    marginTop: 24, padding: 16, borderRadius: 14,
+    marginTop: 24, padding: 16, borderRadius: 16,
     backgroundColor: colors.surfaceElevated, borderWidth: 1, borderColor: colors.border,
     alignItems: 'center',
   },
-  signOutText: { color: colors.danger, fontSize: 16, fontWeight: '600' },
+  signOutText: { color: colors.danger, fontSize: 15, fontWeight: '700' },
 });

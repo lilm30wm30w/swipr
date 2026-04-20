@@ -1,30 +1,44 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Alert, ScrollView,
+  View, Text, TextInput, StyleSheet, Animated,
+  KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView, Easing,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import GradientView from '../../components/GradientView';
+import PressableScale from '../../components/PressableScale';
+import SwiprLogo from '../../components/SwiprLogo';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../theme/colors';
 import { AuthStackParamList } from '../../types';
+import { useToast } from '../../context/ToastContext';
 
-type Props = { navigation: NativeStackNavigationProp<AuthStackParamList, 'Signup'> };
+type Props = { navigation: StackNavigationProp<AuthStackParamList, 'Signup'> };
 
 export default function SignupScreen({ navigation }: Props) {
+  const toast = useToast();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
   const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const fade = useRef(new Animated.Value(0)).current;
+  const slide = useRef(new Animated.Value(20)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fade, { toValue: 1, duration: 500, useNativeDriver: true, easing: Easing.out(Easing.ease) }),
+      Animated.spring(slide, { toValue: 0, useNativeDriver: true, damping: 14 }),
+    ]).start();
+  }, []);
+
   async function handleSignup() {
     if (!email || !password || !username || !fullName) {
-      Alert.alert('Error', 'Please fill in all fields');
+      toast.error('Please fill in all fields');
       return;
     }
     if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+      toast.error('Password must be at least 6 characters');
       return;
     }
     setLoading(true);
@@ -34,23 +48,23 @@ export default function SignupScreen({ navigation }: Props) {
       options: { data: { username: username.trim(), full_name: fullName.trim() } },
     });
     if (error) {
-      Alert.alert('Signup Failed', error.message);
+      toast.error(error.message);
     } else {
-      Alert.alert('Check your email', 'We sent you a confirmation link. Please verify your email to continue.');
+      toast.success('Account created — welcome to Swipr');
     }
     setLoading(false);
   }
 
   return (
-    <LinearGradient colors={[colors.background, '#1A0A2E']} style={styles.container}>
+    <View style={styles.container}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.flex}>
-        <ScrollView contentContainerStyle={styles.inner} showsVerticalScrollIndicator={false}>
-          <View style={styles.header}>
-            <Text style={styles.logo}>Swipr</Text>
+        <ScrollView contentContainerStyle={styles.inner} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <Animated.View style={[styles.header, { opacity: fade, transform: [{ translateY: slide }] }]}>
+            <SwiprLogo size={48} animated />
             <Text style={styles.tagline}>Join the trading revolution</Text>
-          </View>
+          </Animated.View>
 
-          <View style={styles.form}>
+          <Animated.View style={[styles.form, { opacity: fade, transform: [{ translateY: slide }] }]}>
             <TextInput
               style={styles.input} placeholder="Full Name"
               placeholderTextColor={colors.textMuted} value={fullName}
@@ -59,12 +73,12 @@ export default function SignupScreen({ navigation }: Props) {
             <TextInput
               style={styles.input} placeholder="Username"
               placeholderTextColor={colors.textMuted} value={username}
-              onChangeText={setUsername} autoCapitalize="none"
+              onChangeText={setUsername} autoCapitalize="none" autoCorrect={false}
             />
             <TextInput
               style={styles.input} placeholder="Email"
               placeholderTextColor={colors.textMuted} value={email}
-              onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address"
+              onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" autoCorrect={false}
             />
             <TextInput
               style={styles.input} placeholder="Password (min 6 characters)"
@@ -72,19 +86,30 @@ export default function SignupScreen({ navigation }: Props) {
               onChangeText={setPassword} secureTextEntry
             />
 
-            <TouchableOpacity style={styles.button} onPress={handleSignup} disabled={loading}>
-              <LinearGradient colors={[colors.primary, colors.primaryDark]} style={styles.buttonGradient}>
+            <PressableScale
+              style={styles.button}
+              onPress={handleSignup}
+              disabled={loading}
+              hapticOnPressIn="press"
+            >
+              <GradientView colors={[colors.primary, colors.primaryDark]} style={styles.buttonGradient}>
                 {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Create Account</Text>}
-              </LinearGradient>
-            </TouchableOpacity>
+              </GradientView>
+            </PressableScale>
 
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.link}>
-              <Text style={styles.linkText}>Already have an account? <Text style={styles.linkHighlight}>Sign In</Text></Text>
-            </TouchableOpacity>
-          </View>
+            <PressableScale
+              onPress={() => navigation.goBack()}
+              style={styles.link}
+              pressedScale={0.98}
+            >
+              <Text style={styles.linkText}>
+                Already have an account? <Text style={styles.linkHighlight}>Sign In</Text>
+              </Text>
+            </PressableScale>
+          </Animated.View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -93,12 +118,11 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   inner: { justifyContent: 'center', paddingHorizontal: 28, paddingVertical: 60, flexGrow: 1 },
   header: { alignItems: 'center', marginBottom: 40 },
-  logo: { fontSize: 52, fontWeight: '800', color: colors.primaryLight, letterSpacing: -1 },
-  tagline: { fontSize: 15, color: colors.textSecondary, marginTop: 8, textAlign: 'center' },
-  form: { gap: 16 },
+  tagline: { fontSize: 15, color: colors.textSecondary, marginTop: 12, textAlign: 'center' },
+  form: { gap: 14 },
   input: {
     backgroundColor: colors.surfaceElevated,
-    borderRadius: 14,
+    borderRadius: 16,
     paddingHorizontal: 18,
     paddingVertical: 16,
     color: colors.text,
@@ -106,10 +130,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  button: { borderRadius: 14, overflow: 'hidden', marginTop: 8 },
+  button: { borderRadius: 16, overflow: 'hidden', marginTop: 10 },
   buttonGradient: { paddingVertical: 18, alignItems: 'center' },
-  buttonText: { color: '#fff', fontSize: 17, fontWeight: '700' },
-  link: { alignItems: 'center', paddingVertical: 8 },
+  buttonText: { color: '#fff', fontSize: 17, fontWeight: '700', letterSpacing: 0.2 },
+  link: { alignItems: 'center', paddingVertical: 10 },
   linkText: { color: colors.textSecondary, fontSize: 14 },
   linkHighlight: { color: colors.primaryLight, fontWeight: '600' },
 });

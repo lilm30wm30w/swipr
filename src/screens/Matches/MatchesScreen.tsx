@@ -1,31 +1,41 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, StyleSheet,
-  Image, SafeAreaView, ActivityIndicator, RefreshControl,
+  View, Text, FlatList, StyleSheet,
+  Image, SafeAreaView, RefreshControl,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import GradientView from '../../components/GradientView';
+import PressableScale from '../../components/PressableScale';
+import EmptyState from '../../components/EmptyState';
+import { MatchRowSkeleton } from '../../components/Skeleton';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { useAuth } from '../../context/AuthContext';
+import { useMatches } from '../../context/MatchesContext';
 import { supabase } from '../../lib/supabase';
 import { colors } from '../../theme/colors';
-import { Match, Profile, Item, MainStackParamList } from '../../types';
+import { Match, MainStackParamList } from '../../types';
 
-type NavProp = NativeStackNavigationProp<MainStackParamList, 'Tabs'>;
+type NavProp = StackNavigationProp<MainStackParamList, 'Tabs'>;
 
 export default function MatchesScreen() {
   const { user } = useAuth();
+  const { markAllSeen, latestNewMatch } = useMatches();
   const navigation = useNavigation<NavProp>();
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  useFocusEffect(useCallback(() => { fetchMatches(); }, []));
+  useFocusEffect(useCallback(() => {
+    fetchMatches();
+    markAllSeen();
+  }, [markAllSeen]));
+
+  useEffect(() => { if (latestNewMatch) fetchMatches(); }, [latestNewMatch]);
 
   async function fetchMatches() {
     if (!user) return;
     setLoading(true);
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('matches')
       .select(`
         *,
@@ -58,25 +68,26 @@ export default function MatchesScreen() {
     const theirItem = match.other_item;
 
     return (
-      <TouchableOpacity
+      <PressableScale
         style={styles.matchCard}
         onPress={() => other && navigation.navigate('Chat', { matchId: match.id, matchedUser: other })}
-        activeOpacity={0.8}
+        hapticOnPressIn="tap"
+        pressedScale={0.98}
       >
         <View style={styles.avatarContainer}>
           {other?.avatar_url ? (
             <Image source={{ uri: other.avatar_url }} style={styles.avatar} />
           ) : (
-            <View style={styles.avatarPlaceholder}>
+            <GradientView colors={[colors.primary, colors.primaryDark]} style={styles.avatarPlaceholder}>
               <Text style={styles.avatarInitial}>{other?.username?.[0]?.toUpperCase() ?? '?'}</Text>
-            </View>
+            </GradientView>
           )}
           <View style={styles.onlineDot} />
         </View>
 
         <View style={styles.matchInfo}>
           <Text style={styles.username}>@{other?.username}</Text>
-          <Text style={styles.itemName} numberOfLines={1}>{theirItem?.title}</Text>
+          <Text style={styles.itemName} numberOfLines={1}>{theirItem?.title ?? 'Their item'}</Text>
           <View style={styles.statusRow}>
             <View style={[styles.statusBadge, match.status === 'completed' && styles.statusCompleted]}>
               <Text style={styles.statusText}>{match.status}</Text>
@@ -91,33 +102,43 @@ export default function MatchesScreen() {
             <Text style={styles.thumbIcon}>📦</Text>
           </View>
         )}
-      </TouchableOpacity>
+      </PressableScale>
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <LinearGradient colors={[colors.background, '#0D0D1A']} style={StyleSheet.absoluteFill} />
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Matches</Text>
-        <Text style={styles.headerSubtitle}>{matches.length} active trade{matches.length !== 1 ? 's' : ''}</Text>
+        <Text style={styles.headerSubtitle}>
+          {matches.length} active trade{matches.length !== 1 ? 's' : ''}
+        </Text>
       </View>
 
       {loading ? (
-        <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 60 }} />
+        <View style={styles.list}>
+          {[0, 1, 2, 3].map((i) => <MatchRowSkeleton key={i} />)}
+        </View>
       ) : (
         <FlatList
           data={matches}
           keyExtractor={(item) => item.id}
           renderItem={renderMatch}
           contentContainerStyle={styles.list}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchMatches(); }} tintColor={colors.primary} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => { setRefreshing(true); fetchMatches(); }}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
+            />
+          }
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyIcon}>🤝</Text>
-              <Text style={styles.emptyTitle}>No matches yet</Text>
-              <Text style={styles.emptySubtitle}>Start swiping to find trade partners!</Text>
-            </View>
+            <EmptyState
+              icon="🤝"
+              title="No matches yet"
+              subtitle="Keep swiping — when someone swipes right on your item too, you'll both land here."
+            />
           }
         />
       )}
@@ -128,13 +149,13 @@ export default function MatchesScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { padding: 20, paddingBottom: 8 },
-  headerTitle: { fontSize: 28, fontWeight: '800', color: colors.text },
-  headerSubtitle: { fontSize: 14, color: colors.textSecondary, marginTop: 2 },
-  list: { padding: 16, gap: 12, paddingBottom: 40 },
+  headerTitle: { fontSize: 30, fontWeight: '800', color: colors.text, letterSpacing: -0.5 },
+  headerSubtitle: { fontSize: 14, color: colors.textSecondary, marginTop: 2, fontWeight: '500' },
+  list: { padding: 16, gap: 10, paddingBottom: 40 },
   matchCard: {
     backgroundColor: colors.surfaceElevated,
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: 20,
+    padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
@@ -142,19 +163,19 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   avatarContainer: { position: 'relative' },
-  avatar: { width: 52, height: 52, borderRadius: 26, borderWidth: 2, borderColor: colors.primary },
+  avatar: { width: 56, height: 56, borderRadius: 28, borderWidth: 2, borderColor: colors.primary },
   avatarPlaceholder: {
-    width: 52, height: 52, borderRadius: 26,
-    backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center',
+    width: 56, height: 56, borderRadius: 28,
+    justifyContent: 'center', alignItems: 'center',
   },
-  avatarInitial: { color: '#fff', fontSize: 22, fontWeight: '700' },
+  avatarInitial: { color: '#fff', fontSize: 22, fontWeight: '800' },
   onlineDot: {
     position: 'absolute', bottom: 2, right: 2,
-    width: 12, height: 12, borderRadius: 6,
-    backgroundColor: colors.success, borderWidth: 2, borderColor: colors.surfaceElevated,
+    width: 14, height: 14, borderRadius: 7,
+    backgroundColor: colors.success, borderWidth: 2.5, borderColor: colors.surfaceElevated,
   },
   matchInfo: { flex: 1, gap: 3 },
-  username: { fontSize: 16, fontWeight: '700', color: colors.text },
+  username: { fontSize: 16, fontWeight: '800', color: colors.text },
   itemName: { fontSize: 13, color: colors.textSecondary },
   statusRow: { flexDirection: 'row' },
   statusBadge: {
@@ -162,12 +183,8 @@ const styles = StyleSheet.create({
     backgroundColor: `${colors.primary}33`,
   },
   statusCompleted: { backgroundColor: `${colors.success}33` },
-  statusText: { fontSize: 11, fontWeight: '600', color: colors.primaryLight, textTransform: 'capitalize' },
-  itemThumb: { width: 56, height: 56, borderRadius: 12 },
+  statusText: { fontSize: 11, fontWeight: '700', color: colors.primaryLight, textTransform: 'capitalize' },
+  itemThumb: { width: 60, height: 60, borderRadius: 14 },
   thumbPlaceholder: { backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
   thumbIcon: { fontSize: 24 },
-  empty: { alignItems: 'center', paddingTop: 80, gap: 12 },
-  emptyIcon: { fontSize: 56 },
-  emptyTitle: { fontSize: 20, fontWeight: '700', color: colors.text },
-  emptySubtitle: { fontSize: 14, color: colors.textSecondary, textAlign: 'center' },
 });

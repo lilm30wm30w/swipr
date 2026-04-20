@@ -5,7 +5,26 @@ export interface Profile {
   avatar_url: string | null;
   bio: string | null;
   location: string | null;
+  interests: string[] | null;
+  accent_color: string | null;
+  onboarded_at: string | null;
   created_at: string;
+}
+
+export interface TradeProposal {
+  id: string;
+  match_id: string;
+  proposer_id: string;
+  status: 'pending' | 'accepted' | 'declined';
+  created_at: string;
+  responded_at: string | null;
+}
+
+export interface Achievement {
+  id: string;
+  user_id: string;
+  type: string;
+  earned_at: string;
 }
 
 export interface Item {
@@ -45,6 +64,7 @@ export interface Message {
 export type RootStackParamList = {
   Auth: undefined;
   Main: undefined;
+  Onboarding: undefined;
 };
 
 export type AuthStackParamList = {
@@ -62,4 +82,6 @@ export type MainTabParamList = {
 export type MainStackParamList = {
   Tabs: undefined;
   Chat: { matchId: string; matchedUser: Profile };
+  ItemDetail: { itemId: string };
+  Onboarding: undefined;
 };

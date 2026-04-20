@@ -40,3 +40,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# editor / local dev config
+.vscode/
+.mcp.json
