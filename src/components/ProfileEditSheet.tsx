@@ -1,8 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  View, Text, Modal, StyleSheet, TextInput, Animated,
+  View, Text, Modal, StyleSheet, TextInput,
   KeyboardAvoidingView, Platform, ActivityIndicator, ScrollView,
 } from 'react-native';
+import Animated, {
+  useSharedValue, useAnimatedStyle, withSpring,
+} from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import GradientView from './GradientView';
 import PressableScale from './PressableScale';
@@ -34,7 +37,11 @@ export default function ProfileEditSheet({ visible, onClose }: Props) {
   const [fullName, setFullName] = useState(profile?.full_name ?? '');
   const [interests, setInterests] = useState<string[]>(profile?.interests ?? []);
   const [saving, setSaving] = useState(false);
-  const slide = useRef(new Animated.Value(600)).current;
+  const slide = useSharedValue(600);
+
+  const slideStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: slide.value }],
+  }));
 
   useEffect(() => {
     if (visible) {
@@ -42,9 +49,9 @@ export default function ProfileEditSheet({ visible, onClose }: Props) {
       setLocation(profile?.location ?? '');
       setFullName(profile?.full_name ?? '');
       setInterests(profile?.interests ?? []);
-      Animated.spring(slide, { toValue: 0, damping: 18, stiffness: 140, useNativeDriver: true }).start();
+      slide.value = withSpring(0, { damping: 18, stiffness: 140 });
     } else {
-      slide.setValue(600);
+      slide.value = 600;
     }
   }, [visible, profile]);
 
@@ -84,7 +91,7 @@ export default function ProfileEditSheet({ visible, onClose }: Props) {
         >
           <View style={{ flex: 1 }} />
         </PressableScale>
-        <Animated.View style={[styles.sheet, { transform: [{ translateY: slide }] }]}>
+        <Animated.View style={[styles.sheet, slideStyle]}>
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <View style={styles.grabber} />
             <ScrollView

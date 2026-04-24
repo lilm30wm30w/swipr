@@ -1,5 +1,16 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  withRepeat,
+  withSequence,
+  withDelay,
+  interpolate,
+  Easing,
+} from 'react-native-reanimated';
 import GradientView from './GradientView';
 import PressableScale from './PressableScale';
 import { colors } from '../theme/colors';
@@ -14,69 +25,68 @@ interface Props {
 }
 
 export default function EmptyState({ icon, title, subtitle, actionLabel, onAction, compact }: Props) {
-  const fade = useRef(new Animated.Value(0)).current;
-  const lift = useRef(new Animated.Value(20)).current;
-  const iconScale = useRef(new Animated.Value(0.6)).current;
-  const iconFloat = useRef(new Animated.Value(0)).current;
-  const ring1 = useRef(new Animated.Value(0)).current;
-  const ring2 = useRef(new Animated.Value(0)).current;
+  const fade = useSharedValue(0);
+  const lift = useSharedValue(20);
+  const iconScale = useSharedValue(0.6);
+  const iconFloat = useSharedValue(0);
+  const ring1 = useSharedValue(0);
+  const ring2 = useSharedValue(0);
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fade, { toValue: 1, duration: 360, useNativeDriver: true }),
-      Animated.spring(lift, { toValue: 0, damping: 14, stiffness: 110, useNativeDriver: true }),
-      Animated.spring(iconScale, { toValue: 1, damping: 8, stiffness: 120, useNativeDriver: true }),
-    ]).start();
+    fade.value = withTiming(1, { duration: 360 });
+    lift.value = withSpring(0, { damping: 14, stiffness: 110 });
+    iconScale.value = withSpring(1, { damping: 8, stiffness: 120 });
 
-    const float = Animated.loop(
-      Animated.sequence([
-        Animated.timing(iconFloat, { toValue: 1, duration: 2000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(iconFloat, { toValue: 0, duration: 2000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-      ])
+    iconFloat.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.sin) }),
+        withTiming(0, { duration: 2000, easing: Easing.inOut(Easing.sin) }),
+      ),
+      -1, false,
     );
-    float.start();
 
-    const pulse = Animated.loop(
-      Animated.stagger(800, [
-        Animated.timing(ring1, { toValue: 1, duration: 2400, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-        Animated.timing(ring2, { toValue: 1, duration: 2400, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-      ])
+    // Staggered pulse rings
+    ring1.value = withRepeat(
+      withTiming(1, { duration: 2400, easing: Easing.out(Easing.ease) }),
+      -1, false,
     );
-    pulse.start();
-
-    return () => {
-      float.stop();
-      pulse.stop();
-    };
+    ring2.value = withDelay(
+      800,
+      withRepeat(
+        withTiming(1, { duration: 2400, easing: Easing.out(Easing.ease) }),
+        -1, false,
+      ),
+    );
   }, []);
 
-  const floatY = iconFloat.interpolate({ inputRange: [0, 1], outputRange: [0, -6] });
-  const ring1Scale = ring1.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1.8] });
-  const ring1Opacity = ring1.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.5, 0.25, 0] });
-  const ring2Scale = ring2.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1.8] });
-  const ring2Opacity = ring2.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.5, 0.25, 0] });
+  const containerStyle = useAnimatedStyle(() => ({
+    opacity: fade.value,
+    transform: [{ translateY: lift.value }],
+  }));
+
+  const iconWrapStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: iconScale.value },
+      { translateY: interpolate(iconFloat.value, [0, 1], [0, -6]) },
+    ],
+  }));
+
+  const ring1Style = useAnimatedStyle(() => ({
+    transform: [{ scale: interpolate(ring1.value, [0, 1], [0.6, 1.8]) }],
+    opacity: interpolate(ring1.value, [0, 0.5, 1], [0.5, 0.25, 0]),
+  }));
+
+  const ring2Style = useAnimatedStyle(() => ({
+    transform: [{ scale: interpolate(ring2.value, [0, 1], [0.6, 1.8]) }],
+    opacity: interpolate(ring2.value, [0, 0.5, 1], [0.5, 0.25, 0]),
+  }));
 
   return (
-    <Animated.View
-      style={[
-        compact ? styles.compactContainer : styles.container,
-        { opacity: fade, transform: [{ translateY: lift }] },
-      ]}
-    >
+    <Animated.View style={[compact ? styles.compactContainer : styles.container, containerStyle]}>
       <View style={styles.iconWrap}>
-        <Animated.View
-          style={[
-            styles.ring,
-            { transform: [{ scale: ring1Scale }], opacity: ring1Opacity },
-          ]}
-        />
-        <Animated.View
-          style={[
-            styles.ring,
-            { transform: [{ scale: ring2Scale }], opacity: ring2Opacity },
-          ]}
-        />
-        <Animated.View style={{ transform: [{ scale: iconScale }, { translateY: floatY }] }}>
+        <Animated.View style={[styles.ring, ring1Style]} />
+        <Animated.View style={[styles.ring, ring2Style]} />
+        <Animated.View style={iconWrapStyle}>
           <GradientView colors={[`${colors.primary}44`, `${colors.primaryDark}22`]} style={styles.iconCircle}>
             <Text style={styles.icon}>{icon}</Text>
           </GradientView>
@@ -156,19 +166,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     maxWidth: 280,
   },
-  actionButton: {
-    marginTop: 18,
-    borderRadius: 14,
-    overflow: 'hidden',
-  },
-  actionGradient: {
-    paddingHorizontal: 28,
-    paddingVertical: 13,
-  },
-  actionText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '800',
-    letterSpacing: 0.2,
-  },
+  actionButton: { marginTop: 18, borderRadius: 14, overflow: 'hidden' },
+  actionGradient: { paddingHorizontal: 28, paddingVertical: 13 },
+  actionText: { color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: 0.2 },
 });

@@ -1,8 +1,15 @@
-import React, { useRef, useState, useEffect } from 'react';
-import {
-  View, Text, Image, StyleSheet, Dimensions,
-  PanResponder, Animated, TouchableOpacity,
-} from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, Image, StyleSheet, Dimensions, TouchableOpacity } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  interpolate,
+  Extrapolation,
+  runOnJS,
+} from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import GradientView from './GradientView';
 import { colors } from '../theme/colors';
 import { Item } from '../types';
@@ -12,6 +19,7 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH - 32;
 const CARD_HEIGHT = SCREEN_HEIGHT * 0.62;
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.32;
+const VELOCITY_THRESHOLD = 900;
 
 interface Props {
   item: Item;
@@ -22,176 +30,194 @@ interface Props {
 }
 
 export default function SwipeCard({ item, onSwipeLeft, onSwipeRight, isTop, onOpenDetail }: Props) {
-  const position = useRef(new Animated.ValueXY()).current;
-  const enterScale = useRef(new Animated.Value(isTop ? 1 : 0.95)).current;
-  const enterOpacity = useRef(new Animated.Value(0)).current;
+  const tx = useSharedValue(0);
+  const ty = useSharedValue(0);
+  const cardScale = useSharedValue(isTop ? 1 : 0.95);
+  const enterOpacity = useSharedValue(0);
   const [imageIndex, setImageIndex] = useState(0);
-  const crossedRightRef = useRef(false);
-  const crossedLeftRef = useRef(false);
+  const crossedRight = useSharedValue(false);
+  const crossedLeft = useSharedValue(false);
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.spring(enterScale, { toValue: isTop ? 1 : 0.95, useNativeDriver: true, damping: 14, stiffness: 140 }),
-      Animated.timing(enterOpacity, { toValue: 1, duration: 240, useNativeDriver: true }),
-    ]).start();
-  }, []);
+    enterOpacity.value = withTiming(1, { duration: 300 });
+    cardScale.value = withSpring(isTop ? 1 : 0.95, { damping: 14, stiffness: 140 });
+    if (isTop) {
+      ty.value = 24;
+      ty.value = withSpring(0, { damping: 16, stiffness: 120 });
+    }
+  }, [isTop]);
 
-  const rotate = position.x.interpolate({
-    inputRange: [-SCREEN_WIDTH, 0, SCREEN_WIDTH],
-    outputRange: ['-18deg', '0deg', '18deg'],
-    extrapolate: 'clamp',
-  });
-
-  const likeOpacity = position.x.interpolate({
-    inputRange: [20, 120],
-    outputRange: [0, 1],
-    extrapolate: 'clamp',
-  });
-  const likeScale = position.x.interpolate({
-    inputRange: [20, 120],
-    outputRange: [0.85, 1],
-    extrapolate: 'clamp',
-  });
-
-  const nopeOpacity = position.x.interpolate({
-    inputRange: [-120, -20],
-    outputRange: [1, 0],
-    extrapolate: 'clamp',
-  });
-  const nopeScale = position.x.interpolate({
-    inputRange: [-120, -20],
-    outputRange: [1, 0.85],
-    extrapolate: 'clamp',
-  });
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => isTop,
-      onMoveShouldSetPanResponder: (_, g) => isTop && (Math.abs(g.dx) > 4 || Math.abs(g.dy) > 4),
-      onPanResponderGrant: () => {
-        crossedRightRef.current = false;
-        crossedLeftRef.current = false;
-      },
-      onPanResponderMove: (_, gesture) => {
-        position.setValue({ x: gesture.dx, y: gesture.dy * 0.3 });
-        if (gesture.dx > 80 && !crossedRightRef.current) {
-          crossedRightRef.current = true;
-          crossedLeftRef.current = false;
-          haptic.soft();
-        } else if (gesture.dx < -80 && !crossedLeftRef.current) {
-          crossedLeftRef.current = true;
-          crossedRightRef.current = false;
-          haptic.soft();
-        } else if (Math.abs(gesture.dx) < 40) {
-          crossedRightRef.current = false;
-          crossedLeftRef.current = false;
-        }
-      },
-      onPanResponderRelease: (_, gesture) => {
-        if (gesture.dx > SWIPE_THRESHOLD) {
-          haptic.press();
-          Animated.spring(position, {
-            toValue: { x: SCREEN_WIDTH * 1.5, y: gesture.dy },
-            useNativeDriver: true,
-            speed: 18, bounciness: 0,
-          }).start(onSwipeRight);
-        } else if (gesture.dx < -SWIPE_THRESHOLD) {
-          haptic.tap();
-          Animated.spring(position, {
-            toValue: { x: -SCREEN_WIDTH * 1.5, y: gesture.dy },
-            useNativeDriver: true,
-            speed: 18, bounciness: 0,
-          }).start(onSwipeLeft);
-        } else {
-          Animated.spring(position, {
-            toValue: { x: 0, y: 0 },
-            useNativeDriver: true,
-            damping: 14, stiffness: 120,
-          }).start();
-        }
-      },
+  const pan = Gesture.Pan()
+    .enabled(isTop)
+    .activeOffsetX([-6, 6])
+    .onBegin(() => {
+      crossedRight.value = false;
+      crossedLeft.value = false;
     })
-  ).current;
+    .onUpdate((e) => {
+      tx.value = e.translationX;
+      ty.value = e.translationY * 0.28;
 
-  const cardStyle = {
+      if (e.translationX > 80 && !crossedRight.value) {
+        crossedRight.value = true;
+        crossedLeft.value = false;
+        runOnJS(haptic.soft)();
+      } else if (e.translationX < -80 && !crossedLeft.value) {
+        crossedLeft.value = true;
+        crossedRight.value = false;
+        runOnJS(haptic.soft)();
+      } else if (Math.abs(e.translationX) < 40) {
+        crossedRight.value = false;
+        crossedLeft.value = false;
+      }
+    })
+    .onEnd((e) => {
+      const goRight = e.translationX > SWIPE_THRESHOLD || e.velocityX > VELOCITY_THRESHOLD;
+      const goLeft = e.translationX < -SWIPE_THRESHOLD || e.velocityX < -VELOCITY_THRESHOLD;
+
+      if (goRight) {
+        runOnJS(haptic.press)();
+        tx.value = withSpring(
+          SCREEN_WIDTH * 1.6,
+          { velocity: Math.max(e.velocityX, 1200), damping: 18, stiffness: 180 },
+          () => runOnJS(onSwipeRight)(),
+        );
+        ty.value = withTiming(e.translationY, { duration: 280 });
+      } else if (goLeft) {
+        runOnJS(haptic.tap)();
+        tx.value = withSpring(
+          -SCREEN_WIDTH * 1.6,
+          { velocity: Math.min(e.velocityX, -1200), damping: 18, stiffness: 180 },
+          () => runOnJS(onSwipeLeft)(),
+        );
+        ty.value = withTiming(e.translationY, { duration: 280 });
+      } else {
+        tx.value = withSpring(0, { damping: 16, stiffness: 130, mass: 0.9 });
+        ty.value = withSpring(0, { damping: 16, stiffness: 130, mass: 0.9 });
+      }
+    });
+
+  const cardStyle = useAnimatedStyle(() => {
+    const rotate = interpolate(
+      tx.value,
+      [-SCREEN_WIDTH, 0, SCREEN_WIDTH],
+      [-18, 0, 18],
+      Extrapolation.CLAMP,
+    );
+    const rotateY = interpolate(
+      tx.value,
+      [-SCREEN_WIDTH, 0, SCREEN_WIDTH],
+      [10, 0, -10],
+      Extrapolation.CLAMP,
+    );
+    return {
+      opacity: enterOpacity.value,
+      transform: [
+        { perspective: 1400 },
+        { translateX: tx.value },
+        { translateY: ty.value },
+        { rotateZ: `${rotate}deg` },
+        { rotateY: `${rotateY}deg` },
+        { scale: cardScale.value },
+      ],
+    };
+  });
+
+  const likeStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(tx.value, [20, 110], [0, 1], Extrapolation.CLAMP),
     transform: [
-      { translateX: position.x },
-      { translateY: position.y },
-      { rotate },
-      { scale: enterScale },
+      { rotate: '-18deg' },
+      { scale: interpolate(tx.value, [20, 110], [0.8, 1], Extrapolation.CLAMP) },
     ],
-    opacity: enterOpacity,
-  };
+  }));
+
+  const nopeStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(tx.value, [-110, -20], [1, 0], Extrapolation.CLAMP),
+    transform: [
+      { rotate: '18deg' },
+      { scale: interpolate(tx.value, [-110, -20], [1, 0.8], Extrapolation.CLAMP) },
+    ],
+  }));
+
+  const tradeGlowStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(tx.value, [20, 140], [0, 0.5], Extrapolation.CLAMP),
+  }));
+
+  const passGlowStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(tx.value, [-140, -20], [0.5, 0], Extrapolation.CLAMP),
+  }));
 
   const imageUri = item.images?.[imageIndex] || null;
   const conditionLabel = { new: 'New', like_new: 'Like New', good: 'Good', fair: 'Fair' }[item.condition];
 
   return (
-    <Animated.View style={[styles.card, cardStyle]} {...panResponder.panHandlers}>
-      <TouchableOpacity
-        activeOpacity={1}
-        onPress={() => {
-          haptic.selection();
-          setImageIndex((i) => (i + 1) % Math.max(item.images.length, 1));
-        }}
-        style={styles.imageContainer}
-      >
-        {imageUri ? (
-          <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" />
-        ) : (
-          <View style={[styles.image, styles.placeholder]}>
-            <Text style={styles.placeholderIcon}>📦</Text>
-          </View>
-        )}
-
-        {item.images.length > 1 && (
-          <View style={styles.dots}>
-            {item.images.map((_, i) => (
-              <View key={i} style={[styles.dot, i === imageIndex && styles.dotActive]} />
-            ))}
-          </View>
-        )}
-
-        <GradientView
-          colors={['transparent', 'rgba(0,0,0,0.92)']}
-          style={styles.gradient}
-        />
-      </TouchableOpacity>
-
-      <Animated.View style={[styles.likeLabel, { opacity: likeOpacity, transform: [{ rotate: '-18deg' }, { scale: likeScale }] }]}>
-        <Text style={styles.likeLabelText}>TRADE</Text>
-      </Animated.View>
-      <Animated.View style={[styles.nopeLabel, { opacity: nopeOpacity, transform: [{ rotate: '18deg' }, { scale: nopeScale }] }]}>
-        <Text style={styles.nopeLabelText}>PASS</Text>
-      </Animated.View>
-
-      <TouchableOpacity
-        style={styles.info}
-        activeOpacity={0.9}
-        onPress={() => { haptic.tap(); onOpenDetail?.(); }}
-        accessibilityLabel={`See details for ${item.title}`}
-        accessibilityRole="button"
-      >
-        <View style={styles.titleRow}>
-          <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
-          <View style={styles.conditionBadge}>
-            <Text style={styles.conditionText}>{conditionLabel}</Text>
-          </View>
-        </View>
-        <Text style={styles.category}>{item.category.charAt(0).toUpperCase() + item.category.slice(1)}</Text>
-        {item.description ? (
-          <Text style={styles.description} numberOfLines={2}>{item.description}</Text>
-        ) : null}
-        <View style={styles.ownerRow}>
-          {item.profiles && (
-            <Text style={styles.owner}>by @{item.profiles.username}</Text>
+    <GestureDetector gesture={pan}>
+      <Animated.View style={[styles.card, cardStyle]}>
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => {
+            haptic.selection();
+            setImageIndex((i) => (i + 1) % Math.max(item.images.length, 1));
+          }}
+          style={styles.imageContainer}
+        >
+          {imageUri ? (
+            <Image source={{ uri: imageUri }} style={styles.image} resizeMode="cover" />
+          ) : (
+            <View style={[styles.image, styles.placeholder]}>
+              <Text style={styles.placeholderIcon}>📦</Text>
+            </View>
           )}
-          {onOpenDetail ? (
-            <Text style={styles.detailHint}>Tap for details →</Text>
+          {item.images.length > 1 && (
+            <View style={styles.dots}>
+              {item.images.map((_, i) => (
+                <View key={i} style={[styles.dot, i === imageIndex && styles.dotActive]} />
+              ))}
+            </View>
+          )}
+          <GradientView colors={['transparent', 'rgba(0,0,0,0.94)']} style={styles.gradient} />
+        </TouchableOpacity>
+
+        {/* Direction glow overlays */}
+        <Animated.View style={[StyleSheet.absoluteFill, styles.tradeGlow, tradeGlowStyle]} pointerEvents="none" />
+        <Animated.View style={[StyleSheet.absoluteFill, styles.passGlow, passGlowStyle]} pointerEvents="none" />
+
+        {/* Stamp labels */}
+        <Animated.View style={[styles.likeLabel, likeStyle]} pointerEvents="none">
+          <Text style={styles.likeLabelText}>TRADE</Text>
+        </Animated.View>
+        <Animated.View style={[styles.nopeLabel, nopeStyle]} pointerEvents="none">
+          <Text style={styles.nopeLabelText}>PASS</Text>
+        </Animated.View>
+
+        <TouchableOpacity
+          style={styles.info}
+          activeOpacity={0.9}
+          onPress={() => { haptic.tap(); onOpenDetail?.(); }}
+          accessibilityLabel={`See details for ${item.title}`}
+          accessibilityRole="button"
+        >
+          <View style={styles.titleRow}>
+            <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
+            <View style={styles.conditionBadge}>
+              <Text style={styles.conditionText}>{conditionLabel}</Text>
+            </View>
+          </View>
+          <Text style={styles.category}>{item.category.charAt(0).toUpperCase() + item.category.slice(1)}</Text>
+          {item.description ? (
+            <Text style={styles.description} numberOfLines={2}>{item.description}</Text>
           ) : null}
-        </View>
-      </TouchableOpacity>
-    </Animated.View>
+          <View style={styles.ownerRow}>
+            {item.profiles && (
+              <Text style={styles.owner}>by @{item.profiles.username}</Text>
+            )}
+            {onOpenDetail ? (
+              <Text style={styles.detailHint}>Tap for details →</Text>
+            ) : null}
+          </View>
+        </TouchableOpacity>
+      </Animated.View>
+    </GestureDetector>
   );
 }
 
@@ -199,17 +225,25 @@ const styles = StyleSheet.create({
   card: {
     width: CARD_WIDTH,
     height: CARD_HEIGHT,
-    borderRadius: 24,
+    borderRadius: 28,
     backgroundColor: colors.surfaceElevated,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.border,
     position: 'absolute',
     shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.32,
-    shadowRadius: 20,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  tradeGlow: {
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    borderRadius: 28,
+  },
+  passGlow: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderRadius: 28,
   },
   imageContainer: { flex: 1 },
   image: { width: '100%', height: '100%' },
@@ -218,17 +252,20 @@ const styles = StyleSheet.create({
   dots: {
     position: 'absolute', top: 14, flexDirection: 'row',
     alignSelf: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5,
-    borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.35)',
+    borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.38)',
   },
-  dot: { width: 20, height: 3, borderRadius: 1.5, backgroundColor: 'rgba(255,255,255,0.4)' },
+  dot: { width: 22, height: 3, borderRadius: 1.5, backgroundColor: 'rgba(255,255,255,0.35)' },
   dotActive: { backgroundColor: '#fff' },
-  gradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 200 },
-  info: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 22, gap: 4 },
+  gradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 230 },
+  info: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 22, gap: 5 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   title: { flex: 1, fontSize: 24, fontWeight: '800', color: colors.text, letterSpacing: -0.3 },
-  conditionBadge: { backgroundColor: colors.primary, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  conditionBadge: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20,
+  },
   conditionText: { color: '#fff', fontSize: 11, fontWeight: '700' },
-  category: { color: colors.primaryLight, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1 },
+  category: { color: colors.primaryLight, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1.2 },
   description: { color: colors.textSecondary, fontSize: 13, lineHeight: 18 },
   ownerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
   owner: { color: colors.textMuted, fontSize: 12 },
@@ -237,12 +274,14 @@ const styles = StyleSheet.create({
     position: 'absolute', top: 56, left: 24,
     borderWidth: 3, borderColor: '#10B981', borderRadius: 10,
     paddingHorizontal: 14, paddingVertical: 6,
+    backgroundColor: 'rgba(16,185,129,0.12)',
   },
-  likeLabelText: { color: '#10B981', fontSize: 30, fontWeight: '900', letterSpacing: 1 },
+  likeLabelText: { color: '#10B981', fontSize: 30, fontWeight: '900', letterSpacing: 2 },
   nopeLabel: {
     position: 'absolute', top: 56, right: 24,
     borderWidth: 3, borderColor: colors.danger, borderRadius: 10,
     paddingHorizontal: 14, paddingVertical: 6,
+    backgroundColor: 'rgba(239,68,68,0.12)',
   },
-  nopeLabelText: { color: colors.danger, fontSize: 30, fontWeight: '900', letterSpacing: 1 },
+  nopeLabelText: { color: colors.danger, fontSize: 30, fontWeight: '900', letterSpacing: 2 },
 });

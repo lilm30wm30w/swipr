@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
-  View, Text, TextInput, StyleSheet, Animated,
-  KeyboardAvoidingView, Platform, ActivityIndicator, Easing,
+  View, Text, TextInput, StyleSheet,
+  KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
+import { MotiView } from 'moti';
 import GradientView from '../../components/GradientView';
 import PressableScale from '../../components/PressableScale';
 import SwiprLogo from '../../components/SwiprLogo';
@@ -20,16 +21,6 @@ export default function LoginScreen({ navigation }: Props) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const fade = useRef(new Animated.Value(0)).current;
-  const slide = useRef(new Animated.Value(20)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fade, { toValue: 1, duration: 500, useNativeDriver: true, easing: Easing.out(Easing.ease) }),
-      Animated.spring(slide, { toValue: 0, useNativeDriver: true, damping: 14 }),
-    ]).start();
-  }, []);
-
   async function handleLogin() {
     if (!email || !password) { toast.error('Please fill in all fields'); return; }
     setLoading(true);
@@ -41,52 +32,83 @@ export default function LoginScreen({ navigation }: Props) {
   return (
     <View style={styles.container}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.inner}>
-        <Animated.View style={[styles.header, { opacity: fade, transform: [{ translateY: slide }] }]}>
+        {/* Logo + tagline staggered in */}
+        <MotiView
+          from={{ opacity: 0, translateY: 32, scale: 0.92 }}
+          animate={{ opacity: 1, translateY: 0, scale: 1 }}
+          transition={{ type: 'spring', damping: 18, stiffness: 160, delay: 0 }}
+          style={styles.header}
+        >
           <SwiprLogo size={56} animated />
           <Text style={styles.tagline}>Trade what you have. Get what you want.</Text>
-        </Animated.View>
+        </MotiView>
 
-        <Animated.View style={[styles.form, { opacity: fade, transform: [{ translateY: slide }] }]}>
-          <TextInput
-            style={styles.input}
-            placeholder="Email"
-            placeholderTextColor={colors.textMuted}
-            value={email}
-            onChangeText={setEmail}
-            autoCapitalize="none"
-            keyboardType="email-address"
-            autoCorrect={false}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Password"
-            placeholderTextColor={colors.textMuted}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-
-          <PressableScale
-            style={styles.button}
-            onPress={handleLogin}
-            disabled={loading}
-            hapticOnPressIn="press"
+        <View style={styles.form}>
+          <MotiView
+            from={{ opacity: 0, translateY: 20 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'spring', damping: 18, stiffness: 180, delay: 120 }}
           >
-            <GradientView colors={[colors.primary, colors.primaryDark]} style={styles.buttonGradient}>
-              {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign In</Text>}
-            </GradientView>
-          </PressableScale>
+            <TextInput
+              style={styles.input}
+              placeholder="Email"
+              placeholderTextColor={colors.textMuted}
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              autoCorrect={false}
+            />
+          </MotiView>
 
-          <PressableScale
-            onPress={() => navigation.navigate('Signup')}
-            style={styles.link}
-            pressedScale={0.98}
+          <MotiView
+            from={{ opacity: 0, translateY: 20 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'spring', damping: 18, stiffness: 180, delay: 190 }}
           >
-            <Text style={styles.linkText}>
-              Don't have an account? <Text style={styles.linkHighlight}>Sign Up</Text>
-            </Text>
-          </PressableScale>
-        </Animated.View>
+            <TextInput
+              style={styles.input}
+              placeholder="Password"
+              placeholderTextColor={colors.textMuted}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+            />
+          </MotiView>
+
+          <MotiView
+            from={{ opacity: 0, translateY: 16 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'spring', damping: 16, stiffness: 160, delay: 260 }}
+          >
+            <PressableScale
+              style={styles.button}
+              onPress={handleLogin}
+              disabled={loading}
+              hapticOnPressIn="press"
+            >
+              <GradientView colors={[colors.primary, colors.primaryDark]} style={styles.buttonGradient}>
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign In</Text>}
+              </GradientView>
+            </PressableScale>
+          </MotiView>
+
+          <MotiView
+            from={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ type: 'timing', duration: 400, delay: 380 }}
+          >
+            <PressableScale
+              onPress={() => navigation.navigate('Signup')}
+              style={styles.link}
+              pressedScale={0.98}
+            >
+              <Text style={styles.linkText}>
+                Don't have an account? <Text style={styles.linkHighlight}>Sign Up</Text>
+              </Text>
+            </PressableScale>
+          </MotiView>
+        </View>
       </KeyboardAvoidingView>
     </View>
   );
@@ -96,7 +118,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   inner: { flex: 1, justifyContent: 'center', paddingHorizontal: 28 },
   header: { alignItems: 'center', marginBottom: 48 },
-  tagline: { fontSize: 15, color: colors.textSecondary, marginTop: 12, textAlign: 'center' },
+  tagline: { fontSize: 15, color: colors.textSecondary, marginTop: 12, textAlign: 'center', lineHeight: 22 },
   form: { gap: 14 },
   input: {
     backgroundColor: colors.surfaceElevated,

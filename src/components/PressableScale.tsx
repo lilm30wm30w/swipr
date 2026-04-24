@@ -1,8 +1,15 @@
-import React, { useRef } from 'react';
-import { Animated, Pressable, PressableProps, ViewStyle, StyleProp, GestureResponderEvent } from 'react-native';
+import React from 'react';
+import { Pressable, PressableProps, ViewStyle, StyleProp, GestureResponderEvent } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  interpolate,
+} from 'react-native-reanimated';
 import { haptic } from '../lib/haptics';
 
-type HapticLevel = 'none' | 'tap' | 'press' | 'heavy' | 'selection' | 'success';
+type HapticLevel = 'none' | 'tap' | 'press' | 'heavy' | 'selection' | 'success' | 'soft' | 'warning' | 'match';
 
 interface Props extends Omit<PressableProps, 'style'> {
   children: React.ReactNode;
@@ -24,7 +31,14 @@ export default function PressableScale({
   disabled,
   ...rest
 }: Props) {
-  const scale = useRef(new Animated.Value(1)).current;
+  const scale = useSharedValue(1);
+  // Subtle brightness flash on press (no Skia needed)
+  const flash = useSharedValue(0);
+
+  const scaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+    opacity: interpolate(flash.value, [0, 1], [1, 0.88]),
+  }));
 
   const fire = (level: HapticLevel) => {
     if (level === 'none') return;
@@ -32,23 +46,15 @@ export default function PressableScale({
   };
 
   const handlePressIn = (e: GestureResponderEvent) => {
-    Animated.spring(scale, {
-      toValue: pressedScale,
-      useNativeDriver: true,
-      speed: 40,
-      bounciness: 0,
-    }).start();
+    scale.value = withSpring(pressedScale, { damping: 12, stiffness: 440, mass: 0.5 });
+    flash.value = withTiming(1, { duration: 60 });
     if (!disabled) fire(hapticOnPressIn);
     onPressIn?.(e);
   };
 
   const handlePressOut = (e: GestureResponderEvent) => {
-    Animated.spring(scale, {
-      toValue: 1,
-      useNativeDriver: true,
-      speed: 30,
-      bounciness: 8,
-    }).start();
+    scale.value = withSpring(1, { damping: 10, stiffness: 320, mass: 0.65 });
+    flash.value = withTiming(0, { duration: 180 });
     onPressOut?.(e);
   };
 
@@ -65,7 +71,7 @@ export default function PressableScale({
       disabled={disabled}
       {...rest}
     >
-      <Animated.View style={[{ transform: [{ scale }] }, style, disabled && { opacity: 0.5 }]}>
+      <Animated.View style={[scaleStyle, style, disabled && { opacity: 0.5 }]}>
         {children}
       </Animated.View>
     </Pressable>

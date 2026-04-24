@@ -1,8 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  View, Text, TextInput, StyleSheet, Animated,
+  View, Text, TextInput, StyleSheet,
   KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
 } from 'react-native';
+import Animated, {
+  useSharedValue, useAnimatedStyle, withSpring,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import GradientView from '../../components/GradientView';
 import PressableScale from '../../components/PressableScale';
@@ -31,17 +34,20 @@ export default function OnboardingScreen() {
   const [location, setLocation] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const slide = useRef(new Animated.Value(0)).current;
+  const slideY = useSharedValue(24);
+  const slideOpacity = useSharedValue(0);
 
   useEffect(() => {
-    slide.setValue(24);
-    Animated.spring(slide, {
-      toValue: 0,
-      damping: 14,
-      stiffness: 120,
-      useNativeDriver: true,
-    }).start();
+    slideY.value = 24;
+    slideOpacity.value = 0;
+    slideY.value = withSpring(0, { damping: 14, stiffness: 120 });
+    slideOpacity.value = withSpring(1, { damping: 18, stiffness: 160 });
   }, [step]);
+
+  const slideStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: slideY.value }],
+    opacity: slideOpacity.value,
+  }));
 
   function toggleInterest(tag: string) {
     haptic.selection();
@@ -113,7 +119,7 @@ export default function OnboardingScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <Animated.View style={{ transform: [{ translateY: slide }] }}>
+          <Animated.View style={slideStyle}>
             {step === 0 && (
               <>
                 <Text style={styles.eyebrow}>Step 1 of {TOTAL_STEPS}</Text>

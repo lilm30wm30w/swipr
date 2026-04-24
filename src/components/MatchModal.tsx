@@ -1,6 +1,15 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, Image, StyleSheet, Modal, Dimensions, Animated, Platform, Easing } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, Image, StyleSheet, Modal, Dimensions, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  withDelay,
+  withSequence,
+  Easing,
+} from 'react-native-reanimated';
 import GradientView from './GradientView';
 import PressableScale from './PressableScale';
 import Confetti from './Confetti';
@@ -18,62 +27,81 @@ interface Props {
   theirProfile: Profile | null;
 }
 
+const SPRING_SOFT = { damping: 18, stiffness: 200 };
+const SPRING_BOUNCE = { damping: 8, stiffness: 160, mass: 0.8 };
+
 export default function MatchModal({ visible, onClose, onChat, myItem, theirItem, theirProfile }: Props) {
-  const overlayOpacity = useRef(new Animated.Value(0)).current;
-  const titleOpacity = useRef(new Animated.Value(0)).current;
-  const titleScale = useRef(new Animated.Value(0.7)).current;
-  const myItemX = useRef(new Animated.Value(-width)).current;
-  const theirItemX = useRef(new Animated.Value(width)).current;
-  const swapScale = useRef(new Animated.Value(0)).current;
-  const buttonsY = useRef(new Animated.Value(40)).current;
-  const buttonsOpacity = useRef(new Animated.Value(0)).current;
+  const overlayOpacity = useSharedValue(0);
+  const titleScale = useSharedValue(0.6);
+  const titleOpacity = useSharedValue(0);
+  const myItemX = useSharedValue(-width);
+  const theirItemX = useSharedValue(width);
+  const swapScale = useSharedValue(0);
+  const swapRotate = useSharedValue(-30);
+  const buttonsY = useSharedValue(40);
+  const buttonsOpacity = useSharedValue(0);
 
   useEffect(() => {
     if (visible) {
-      Animated.sequence([
-        Animated.timing(overlayOpacity, { toValue: 1, duration: 220, useNativeDriver: true }),
-        Animated.parallel([
-          Animated.timing(titleOpacity, { toValue: 1, duration: 260, useNativeDriver: true }),
-          Animated.spring(titleScale, { toValue: 1, damping: 9, stiffness: 140, useNativeDriver: true }),
-        ]),
-        Animated.parallel([
-          Animated.spring(myItemX, { toValue: 0, damping: 14, stiffness: 110, useNativeDriver: true }),
-          Animated.spring(theirItemX, { toValue: 0, damping: 14, stiffness: 110, useNativeDriver: true }),
-        ]),
-        Animated.spring(swapScale, { toValue: 1, damping: 6, stiffness: 200, useNativeDriver: true }),
-        Animated.parallel([
-          Animated.spring(buttonsY, { toValue: 0, damping: 14, useNativeDriver: true }),
-          Animated.timing(buttonsOpacity, { toValue: 1, duration: 260, useNativeDriver: true }),
-        ]),
-      ]).start();
+      // Phase 1: overlay
+      overlayOpacity.value = withTiming(1, { duration: 200 });
+
+      // Phase 2: title bounces in
+      titleOpacity.value = withDelay(160, withTiming(1, { duration: 200 }));
+      titleScale.value = withDelay(160, withSpring(1, SPRING_BOUNCE));
+
+      // Phase 3: item cards fly in
+      myItemX.value = withDelay(340, withSpring(0, SPRING_SOFT));
+      theirItemX.value = withDelay(340, withSpring(0, SPRING_SOFT));
+
+      // Phase 4: swap icon pops + spins
+      swapScale.value = withDelay(520, withSpring(1, { damping: 5, stiffness: 220 }));
+      swapRotate.value = withDelay(520, withSpring(0, SPRING_BOUNCE));
+
+      // Phase 5: buttons slide up
+      buttonsOpacity.value = withDelay(680, withTiming(1, { duration: 260 }));
+      buttonsY.value = withDelay(680, withSpring(0, SPRING_SOFT));
     } else {
-      overlayOpacity.setValue(0);
-      titleOpacity.setValue(0);
-      titleScale.setValue(0.7);
-      myItemX.setValue(-width);
-      theirItemX.setValue(width);
-      swapScale.setValue(0);
-      buttonsY.setValue(40);
-      buttonsOpacity.setValue(0);
+      overlayOpacity.value = withTiming(0, { duration: 160 });
+      titleScale.value = 0.6;
+      titleOpacity.value = 0;
+      myItemX.value = -width;
+      theirItemX.value = width;
+      swapScale.value = 0;
+      swapRotate.value = -30;
+      buttonsY.value = 40;
+      buttonsOpacity.value = 0;
     }
   }, [visible]);
 
+  const overlayStyle = useAnimatedStyle(() => ({ opacity: overlayOpacity.value }));
+  const titleStyle = useAnimatedStyle(() => ({
+    opacity: titleOpacity.value,
+    transform: [{ scale: titleScale.value }],
+  }));
+  const myItemStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: myItemX.value }],
+  }));
+  const theirItemStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: theirItemX.value }],
+  }));
+  const swapStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: swapScale.value }, { rotate: `${swapRotate.value}deg` }],
+  }));
+  const buttonsStyle = useAnimatedStyle(() => ({
+    opacity: buttonsOpacity.value,
+    transform: [{ translateY: buttonsY.value }],
+  }));
+
   return (
     <Modal visible={visible} transparent animationType="none" statusBarTranslucent>
-      <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
+      <Animated.View style={[styles.overlay, overlayStyle]}>
         <BlurView intensity={Platform.OS === 'ios' ? 40 : 100} tint="dark" style={StyleSheet.absoluteFill} />
-        <GradientView colors={['rgba(139,92,246,0.25)', 'rgba(10,10,15,0.75)']} style={StyleSheet.absoluteFill} />
+        <GradientView colors={['rgba(139,92,246,0.28)', 'rgba(10,10,15,0.8)']} style={StyleSheet.absoluteFill} />
         <Confetti active={visible} count={80} duration={2800} />
 
         <View style={styles.content}>
-          <Animated.View
-            style={{
-              opacity: titleOpacity,
-              transform: [{ scale: titleScale }],
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
+          <Animated.View style={[{ alignItems: 'center', gap: 8 }, titleStyle]}>
             <Text style={styles.emoji}>🎉</Text>
             <Text style={styles.title}>It's a Match!</Text>
             <Text style={styles.subtitle}>
@@ -82,7 +110,7 @@ export default function MatchModal({ visible, onClose, onChat, myItem, theirItem
           </Animated.View>
 
           <View style={styles.items}>
-            <Animated.View style={[styles.itemCard, { transform: [{ translateX: myItemX }] }]}>
+            <Animated.View style={[styles.itemCard, myItemStyle]}>
               {myItem?.images?.[0] ? (
                 <Image source={{ uri: myItem.images[0] }} style={styles.itemImage} />
               ) : (
@@ -94,13 +122,13 @@ export default function MatchModal({ visible, onClose, onChat, myItem, theirItem
               <Text style={styles.itemOwner}>Your item</Text>
             </Animated.View>
 
-            <Animated.View style={[styles.swapIcon, { transform: [{ scale: swapScale }] }]}>
+            <Animated.View style={[styles.swapIcon, swapStyle]}>
               <GradientView colors={[colors.primary, colors.primaryDark]} style={styles.swapGradient}>
                 <Text style={styles.swapText}>⇄</Text>
               </GradientView>
             </Animated.View>
 
-            <Animated.View style={[styles.itemCard, { transform: [{ translateX: theirItemX }] }]}>
+            <Animated.View style={[styles.itemCard, theirItemStyle]}>
               {theirItem?.images?.[0] ? (
                 <Image source={{ uri: theirItem.images[0] }} style={styles.itemImage} />
               ) : (
@@ -113,9 +141,7 @@ export default function MatchModal({ visible, onClose, onChat, myItem, theirItem
             </Animated.View>
           </View>
 
-          <Animated.View
-            style={{ width: '100%', gap: 6, opacity: buttonsOpacity, transform: [{ translateY: buttonsY }] }}
-          >
+          <Animated.View style={[{ width: '100%', gap: 6 }, buttonsStyle]}>
             <PressableScale style={styles.chatButton} onPress={onChat} hapticOnPressIn="press">
               <GradientView colors={[colors.primary, colors.primaryDark]} style={styles.chatGradient}>
                 <Text style={styles.chatText}>Start Chatting 💬</Text>
@@ -135,18 +161,18 @@ export default function MatchModal({ visible, onClose, onChat, myItem, theirItem
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   content: {
-    backgroundColor: 'rgba(28,28,40,0.92)',
+    backgroundColor: 'rgba(22,20,36,0.94)',
     borderRadius: 32, padding: 28, alignItems: 'center',
     width: '100%', maxWidth: 460,
     borderWidth: 1, borderColor: `${colors.primary}66`,
     gap: 18,
     shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.5,
-    shadowRadius: 24,
-    elevation: 12,
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.55,
+    shadowRadius: 32,
+    elevation: 14,
   },
-  emoji: { fontSize: 52 },
+  emoji: { fontSize: 56 },
   title: { fontSize: 34, fontWeight: '900', color: colors.text, letterSpacing: -0.5 },
   subtitle: { fontSize: 15, color: colors.textSecondary, textAlign: 'center', lineHeight: 21 },
   highlight: { color: colors.primaryLight, fontWeight: '800' },
@@ -154,16 +180,15 @@ const styles = StyleSheet.create({
   itemCard: { flex: 1, alignItems: 'center', gap: 6 },
   itemImage: {
     width: (width - 180) / 2, height: (width - 180) / 2,
-    borderRadius: 16,
-    borderWidth: 2, borderColor: `${colors.primary}55`,
+    borderRadius: 16, borderWidth: 2, borderColor: `${colors.primary}55`,
   },
   imagePlaceholder: { backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
   placeholderIcon: { fontSize: 32 },
   itemTitle: { color: colors.text, fontSize: 13, fontWeight: '700', textAlign: 'center' },
   itemOwner: { color: colors.textMuted, fontSize: 11, fontWeight: '600' },
   swapIcon: {
-    width: 42, height: 42, borderRadius: 21, overflow: 'hidden',
-    shadowColor: colors.primary, shadowOpacity: 0.6, shadowRadius: 12, elevation: 6,
+    width: 44, height: 44, borderRadius: 22, overflow: 'hidden',
+    shadowColor: colors.primary, shadowOpacity: 0.7, shadowRadius: 14, elevation: 8,
   },
   swapGradient: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   swapText: { color: '#fff', fontSize: 20, fontWeight: '800' },

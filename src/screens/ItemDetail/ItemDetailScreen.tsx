@@ -1,8 +1,16 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, Image, ScrollView, Dimensions,
-  Animated, FlatList, ActivityIndicator,
+  View, Text, StyleSheet, Image, Dimensions, ScrollView,
+  FlatList, ActivityIndicator,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  useAnimatedScrollHandler,
+  withSpring,
+  interpolate,
+  Extrapolation,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import GradientView from '../../components/GradientView';
@@ -29,11 +37,16 @@ export default function ItemDetailScreen({ route, navigation }: Props) {
   const [item, setItem] = useState<Item | null>(null);
   const [similar, setSimilar] = useState<Item[]>([]);
   const [imageIdx, setImageIdx] = useState(0);
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const enter = useRef(new Animated.Value(0)).current;
+  const scrollY = useSharedValue(0);
+  const enter = useSharedValue(0);
+
+  const scrollHandler = useAnimatedScrollHandler((event) => {
+    scrollY.value = event.contentOffset.y;
+  });
 
   useEffect(() => {
-    Animated.spring(enter, { toValue: 1, damping: 16, stiffness: 120, useNativeDriver: true }).start();
+    enter.value = 0;
+    enter.value = withSpring(1, { damping: 16, stiffness: 120 });
     load();
   }, [itemId]);
 
@@ -57,12 +70,19 @@ export default function ItemDetailScreen({ route, navigation }: Props) {
     }
   }
 
-  const headerOpacity = scrollY.interpolate({
-    inputRange: [0, GALLERY_HEIGHT * 0.55, GALLERY_HEIGHT * 0.8],
-    outputRange: [0, 0, 1],
-    extrapolate: 'clamp',
-  });
-  const enterScale = enter.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] });
+  const headerStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      scrollY.value,
+      [0, GALLERY_HEIGHT * 0.55, GALLERY_HEIGHT * 0.8],
+      [0, 0, 1],
+      Extrapolation.CLAMP,
+    ),
+  }));
+
+  const enterStyle = useAnimatedStyle(() => ({
+    opacity: enter.value,
+    transform: [{ scale: interpolate(enter.value, [0, 1], [0.94, 1]) }],
+  }));
 
   if (!item) {
     return (
@@ -74,7 +94,7 @@ export default function ItemDetailScreen({ route, navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <Animated.View style={[styles.stickyHeader, { opacity: headerOpacity }]} pointerEvents="none">
+      <Animated.View style={[styles.stickyHeader, headerStyle]} pointerEvents="none">
         <BlurView intensity={60} tint="dark" style={StyleSheet.absoluteFill}>
           <View style={styles.stickyBorder} />
         </BlurView>
@@ -85,11 +105,11 @@ export default function ItemDetailScreen({ route, navigation }: Props) {
 
       <Animated.ScrollView
         showsVerticalScrollIndicator={false}
-        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: true })}
+        onScroll={scrollHandler}
         scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: 140 }}
       >
-        <Animated.View style={{ transform: [{ scale: enterScale }], opacity: enter }}>
+        <Animated.View style={enterStyle}>
           <View style={styles.gallery}>
             <FlatList
               horizontal

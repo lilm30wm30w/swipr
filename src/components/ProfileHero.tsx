@@ -1,59 +1,66 @@
-import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet, Animated, Easing, Dimensions } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, StyleSheet, Dimensions } from 'react-native';
+import { Canvas, Circle, BlurMask } from '@shopify/react-native-skia';
+import {
+  useSharedValue,
+  useDerivedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+  interpolate,
+  Easing,
+} from 'react-native-reanimated';
 import { colors } from '../theme/colors';
 
 const { width } = Dimensions.get('window');
 const HERO_HEIGHT = 180;
 
 export default function ProfileHero() {
-  const blob1 = useRef(new Animated.Value(0)).current;
-  const blob2 = useRef(new Animated.Value(0)).current;
-  const blob3 = useRef(new Animated.Value(0)).current;
+  const b1 = useSharedValue(0);
+  const b2 = useSharedValue(0);
+  const b3 = useSharedValue(0);
 
   useEffect(() => {
-    const mk = (v: Animated.Value, duration: number) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(v, { toValue: 1, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(v, { toValue: 0, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        ])
+    const mkLoop = (v: ReturnType<typeof useSharedValue<number>>, duration: number) => {
+      v.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration, easing: Easing.inOut(Easing.sin) }),
+          withTiming(0, { duration, easing: Easing.inOut(Easing.sin) }),
+        ),
+        -1, false,
       );
-    const loops = [mk(blob1, 5200), mk(blob2, 6400), mk(blob3, 4800)];
-    loops.forEach((l) => l.start());
-    return () => loops.forEach((l) => l.stop());
+    };
+    mkLoop(b1, 5200);
+    mkLoop(b2, 6400);
+    mkLoop(b3, 4800);
   }, []);
 
-  const t1x = blob1.interpolate({ inputRange: [0, 1], outputRange: [-20, 30] });
-  const t1y = blob1.interpolate({ inputRange: [0, 1], outputRange: [-10, 12] });
-  const t2x = blob2.interpolate({ inputRange: [0, 1], outputRange: [20, -24] });
-  const t2y = blob2.interpolate({ inputRange: [0, 1], outputRange: [10, -8] });
-  const t3x = blob3.interpolate({ inputRange: [0, 1], outputRange: [-12, 18] });
-  const t3y = blob3.interpolate({ inputRange: [0, 1], outputRange: [6, -14] });
+  // Blob 1 (primary) — top-left
+  const b1cx = useDerivedValue(() => interpolate(b1.value, [0, 1], [-40 + 130, -40 + 130 + 30]));
+  const b1cy = useDerivedValue(() => interpolate(b1.value, [0, 1], [-60 + 130, -60 + 130 + 12]));
+
+  // Blob 2 (accent) — top-right
+  const b2cx = useDerivedValue(() => interpolate(b2.value, [0, 1], [width + 50 - 110, width + 50 - 110 - 24]));
+  const b2cy = useDerivedValue(() => interpolate(b2.value, [0, 1], [-30 + 110, -30 + 110 - 8]));
+
+  // Blob 3 (light) — bottom-center
+  const b3cx = useDerivedValue(() => interpolate(b3.value, [0, 1], [width / 2 + 12, width / 2 + 12 + 18]));
+  const b3cy = useDerivedValue(() => interpolate(b3.value, [0, 1], [HERO_HEIGHT - 40 + 90 + 6, HERO_HEIGHT - 40 + 90 - 14]));
 
   return (
     <View style={styles.hero} pointerEvents="none">
       <View style={styles.base} />
-      <Animated.View
-        style={[
-          styles.blob,
-          styles.blobPrimary,
-          { transform: [{ translateX: t1x }, { translateY: t1y }] },
-        ]}
-      />
-      <Animated.View
-        style={[
-          styles.blob,
-          styles.blobAccent,
-          { transform: [{ translateX: t2x }, { translateY: t2y }] },
-        ]}
-      />
-      <Animated.View
-        style={[
-          styles.blob,
-          styles.blobLight,
-          { transform: [{ translateX: t3x }, { translateY: t3y }] },
-        ]}
-      />
+      <Canvas style={StyleSheet.absoluteFill}>
+        <Circle cx={b1cx} cy={b1cy} r={130} color={`${colors.primary}4D`}>
+          <BlurMask blur={28} style="normal" />
+        </Circle>
+        <Circle cx={b2cx} cy={b2cy} r={110} color={`${colors.accent}40`}>
+          <BlurMask blur={24} style="normal" />
+        </Circle>
+        <Circle cx={b3cx} cy={b3cy} r={90} color={`${colors.primaryLight}33`}>
+          <BlurMask blur={20} style="normal" />
+        </Circle>
+      </Canvas>
       <View style={styles.fadeBottom} />
     </View>
   );
@@ -69,26 +76,6 @@ const styles = StyleSheet.create({
   base: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: `${colors.primaryDark}30`,
-  },
-  blob: {
-    position: 'absolute',
-    borderRadius: 500,
-  },
-  blobPrimary: {
-    width: 260, height: 260,
-    top: -60, left: -40,
-    backgroundColor: `${colors.primary}4D`,
-  },
-  blobAccent: {
-    width: 220, height: 220,
-    top: -30, right: -50,
-    backgroundColor: `${colors.accent}40`,
-  },
-  blobLight: {
-    width: 180, height: 180,
-    bottom: -40,
-    left: width / 2 - 90,
-    backgroundColor: `${colors.primaryLight}33`,
   },
   fadeBottom: {
     position: 'absolute',

@@ -1,8 +1,21 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import {
   View, Text, FlatList, TextInput, StyleSheet, Image,
-  KeyboardAvoidingView, Platform, Animated, Easing,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withRepeat,
+  withSequence,
+  withTiming,
+  withDelay,
+  interpolate,
+  makeMutable,
+  Easing,
+  type SharedValue,
+} from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import GradientView from '../../components/GradientView';
@@ -22,22 +35,21 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 type Props = StackScreenProps<MainStackParamList, 'Chat'>;
 
 function MessageBubble({ message, isMine, isNew }: { message: Message; isMine: boolean; isNew: boolean }) {
-  const anim = useRef(new Animated.Value(isNew ? 0 : 1)).current;
+  const anim = useSharedValue(isNew ? 0 : 1);
+
   useEffect(() => {
     if (isNew) {
-      Animated.spring(anim, { toValue: 1, useNativeDriver: true, damping: 14, stiffness: 150 }).start();
+      anim.value = withSpring(1, { damping: 14, stiffness: 150 });
     }
   }, []);
 
-  const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [12, 0] });
+  const style = useAnimatedStyle(() => ({
+    opacity: anim.value,
+    transform: [{ translateY: interpolate(anim.value, [0, 1], [12, 0]) }],
+  }));
+
   return (
-    <Animated.View
-      style={[
-        styles.messageRow,
-        isMine && styles.messageRowMine,
-        { opacity: anim, transform: [{ translateY }] },
-      ]}
-    >
+    <Animated.View style={[styles.messageRow, isMine && styles.messageRowMine, style]}>
       <View style={[styles.bubble, isMine ? styles.bubbleMine : styles.bubbleTheirs]}>
         <Text style={[styles.bubbleText, isMine && styles.bubbleTextMine]}>{message.content}</Text>
         <Text style={[styles.time, isMine && styles.timeMine]}>
@@ -48,28 +60,34 @@ function MessageBubble({ message, isMine, isNew }: { message: Message; isMine: b
   );
 }
 
+function TypingDot({ d }: { d: SharedValue<number> }) {
+  const style = useAnimatedStyle(() => ({
+    opacity: d.value,
+    transform: [{ scale: d.value }],
+  }));
+  return <Animated.View style={[styles.typingDot, style]} />;
+}
+
 function TypingIndicator() {
-  const dots = [useRef(new Animated.Value(0.3)).current, useRef(new Animated.Value(0.3)).current, useRef(new Animated.Value(0.3)).current];
+  const dots = useRef([makeMutable(0.3), makeMutable(0.3), makeMutable(0.3)]).current;
+
   useEffect(() => {
-    const loops = dots.map((d, i) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(i * 160),
-          Animated.timing(d, { toValue: 1, duration: 400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-          Animated.timing(d, { toValue: 0.3, duration: 400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-          Animated.delay(320 - i * 160),
-        ])
-      )
-    );
-    loops.forEach((l) => l.start());
-    return () => loops.forEach((l) => l.stop());
+    dots.forEach((d, i) => {
+      d.value = withRepeat(
+        withSequence(
+          withDelay(i * 160, withTiming(1, { duration: 400, easing: Easing.inOut(Easing.ease) })),
+          withTiming(0.3, { duration: 400, easing: Easing.inOut(Easing.ease) }),
+          withDelay(Math.max(0, 320 - i * 160), withTiming(0.3, { duration: 0 })),
+        ),
+        -1, false,
+      );
+    });
   }, []);
+
   return (
-    <View style={[styles.messageRow]}>
+    <View style={styles.messageRow}>
       <View style={[styles.bubble, styles.bubbleTheirs, styles.typingBubble]}>
-        {dots.map((d, i) => (
-          <Animated.View key={i} style={[styles.typingDot, { opacity: d, transform: [{ scale: d }] }]} />
-        ))}
+        {dots.map((d, i) => <TypingDot key={i} d={d} />)}
       </View>
     </View>
   );
@@ -240,21 +258,15 @@ export default function ChatScreen({ route, navigation }: Props) {
   async function handleAccept() {
     if (!proposal || !user) return;
     setProposalBusy(true);
-    const { error: pErr } = await supabase.from('trade_proposals').update({
-      status: 'accepted',
-      responded_at: new Date().toISOString(),
-    }).eq('id', proposal.id);
+    const { error: tradeError } = await supabase.rpc('complete_trade', {
+      p_match_id: matchId,
+      p_proposal_id: proposal.id,
+    });
 
-    if (pErr) {
+    if (tradeError) {
       setProposalBusy(false);
-      toast.error('Failed to accept');
+      toast.error('Failed to complete trade');
       return;
-    }
-
-    await supabase.from('matches').update({ status: 'completed' }).eq('id', matchId);
-    if (match) {
-      await supabase.from('items').update({ is_available: false })
-        .in('id', [match.item1_id, match.item2_id]);
     }
 
     if (match) {
