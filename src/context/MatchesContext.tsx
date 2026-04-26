@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useAuth } from './AuthContext';
 import { supabase } from '../lib/supabase';
 import { Match } from '../types';
@@ -23,7 +23,6 @@ export function MatchesProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [unseenCount, setUnseenCount] = useState(0);
   const [latestNewMatch, setLatestNewMatch] = useState<Match | null>(null);
-  const userIdRef = useRef<string | null>(null);
 
   const refreshUnseen = useCallback(async () => {
     if (!user) { setUnseenCount(0); return; }
@@ -50,7 +49,6 @@ export function MatchesProvider({ children }: { children: React.ReactNode }) {
   const clearLatestNewMatch = useCallback(() => setLatestNewMatch(null), []);
 
   useEffect(() => {
-    userIdRef.current = user?.id ?? null;
     if (!user) { setUnseenCount(0); setLatestNewMatch(null); return; }
     refreshUnseen();
 

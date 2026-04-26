@@ -1,5 +1,14 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSequence,
+  withDelay,
+  interpolate,
+  Easing,
+} from 'react-native-reanimated';
 import { colors } from '../theme/colors';
 
 interface Props {
@@ -9,38 +18,43 @@ interface Props {
 }
 
 export default function SwiprLogo({ size = 52, animated = false, showTrail = true }: Props) {
-  const trailWidth = useRef(new Animated.Value(animated ? 0 : 1)).current;
-  const letterOpacity = useRef(new Animated.Value(animated ? 0 : 1)).current;
+  const trailProgress = useSharedValue(animated ? 0 : 1);
+  const letterOpacity = useSharedValue(animated ? 0 : 1);
 
   useEffect(() => {
     if (!animated) return;
-    Animated.sequence([
-      Animated.timing(letterOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
-      Animated.timing(trailWidth, { toValue: 1, duration: 520, easing: Easing.out(Easing.cubic), useNativeDriver: false }),
-    ]).start();
+    letterOpacity.value = withTiming(1, { duration: 300 });
+    trailProgress.value = withDelay(
+      300,
+      withTiming(1, { duration: 520, easing: Easing.out(Easing.cubic) }),
+    );
   }, [animated]);
 
-  const trailW = trailWidth.interpolate({ inputRange: [0, 1], outputRange: [0, size * 2.2] });
+  const letterStyle = useAnimatedStyle(() => ({
+    opacity: letterOpacity.value,
+  }));
+
+  const trailStyle = useAnimatedStyle(() => ({
+    width: interpolate(trailProgress.value, [0, 1], [0, size * 2.2]),
+    bottom: size * 0.12,
+  }));
 
   return (
     <View style={[styles.wrap, { height: size * 1.4 }]}>
       <Animated.Text
         style={[
           styles.text,
-          {
-            fontSize: size,
-            opacity: letterOpacity,
-            textShadowRadius: size / 4,
-          },
+          { fontSize: size, textShadowRadius: size / 4 },
+          letterStyle,
         ]}
       >
         Swipr
       </Animated.Text>
       {showTrail && (
-        <Animated.View style={[styles.trailRow, { width: trailW, bottom: size * 0.12 }]}>
+        <Animated.View style={[styles.trailRow, trailStyle]}>
           <View style={[styles.trailDot, { backgroundColor: colors.primary }]} />
           <View style={[styles.trailLine, { backgroundColor: colors.primaryLight }]} />
-          <View style={[styles.trailArrow]}>
+          <View style={styles.trailArrow}>
             <Text style={[styles.trailArrowText, { fontSize: size * 0.4 }]}>→</Text>
           </View>
         </Animated.View>

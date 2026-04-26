@@ -1,5 +1,8 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, Image, StyleSheet, Animated, ActivityIndicator } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, Image, StyleSheet, ActivityIndicator } from 'react-native';
+import Animated, {
+  useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, interpolateColor,
+} from 'react-native-reanimated';
 import GradientView from './GradientView';
 import PressableScale from './PressableScale';
 import { colors } from '../theme/colors';
@@ -40,31 +43,35 @@ export default function TradeProposalCard({
   myItem, theirItem, proposal, iAmProposer, matchCompleted, busy,
   onPropose, onAccept, onDecline, onWithdraw,
 }: Props) {
-  const glow = useRef(new Animated.Value(0)).current;
+  const glow = useSharedValue(0);
 
   useEffect(() => {
     if (proposal?.status === 'pending') {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(glow, { toValue: 1, duration: 1400, useNativeDriver: false }),
-          Animated.timing(glow, { toValue: 0, duration: 1400, useNativeDriver: false }),
-        ])
-      ).start();
+      glow.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 1400 }),
+          withTiming(0, { duration: 1400 }),
+        ),
+        -1, false,
+      );
     } else {
-      glow.setValue(0);
+      glow.value = 0;
     }
   }, [proposal?.status]);
 
-  const borderColor = glow.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['rgba(167,139,250,0.35)', 'rgba(167,139,250,0.85)'],
-  });
+  const cardStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(
+      glow.value,
+      [0, 1],
+      ['rgba(167,139,250,0.35)', 'rgba(167,139,250,0.85)'],
+    ),
+  }));
 
   const isPending = proposal?.status === 'pending';
   const status = matchCompleted ? 'completed' : proposal?.status;
 
   return (
-    <Animated.View style={[styles.card, { borderColor }]}>
+    <Animated.View style={[styles.card, cardStyle]}>
       <View style={styles.row}>
         <Thumb item={myItem} label="You offer" />
         <View style={styles.swapIcon}>

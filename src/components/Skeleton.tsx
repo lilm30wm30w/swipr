@@ -1,44 +1,39 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, View, ViewStyle, StyleProp, Dimensions } from 'react-native';
+import React, { useEffect } from 'react';
+import { StyleSheet, View, ViewStyle, StyleProp, Dimensions, DimensionValue } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withTiming,
+  interpolate,
+} from 'react-native-reanimated';
 import { colors } from '../theme/colors';
 
+const { width: WINDOW_WIDTH, height: WINDOW_HEIGHT } = Dimensions.get('window');
+
 interface Props {
-  width?: number | string;
-  height?: number | string;
+  width?: DimensionValue;
+  height?: DimensionValue;
   radius?: number;
   style?: StyleProp<ViewStyle>;
 }
 
 export function Skeleton({ width = '100%', height = 16, radius = 8, style }: Props) {
-  const shimmer = useRef(new Animated.Value(0)).current;
+  const shimmer = useSharedValue(0);
 
   useEffect(() => {
-    const loop = Animated.loop(
-      Animated.timing(shimmer, {
-        toValue: 1,
-        duration: 1300,
-        useNativeDriver: true,
-      })
-    );
-    loop.start();
-    return () => loop.stop();
+    shimmer.value = withRepeat(withTiming(1, { duration: 1300 }), -1, false);
   }, []);
 
-  const translateX = shimmer.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-200, Dimensions.get('window').width],
-  });
+  const shimmerStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: interpolate(shimmer.value, [0, 1], [-200, WINDOW_WIDTH]) },
+    ],
+  }));
 
   return (
     <View style={[{ width, height, borderRadius: radius, overflow: 'hidden', backgroundColor: colors.surfaceElevated }, style]}>
-      <Animated.View
-        style={[
-          StyleSheet.absoluteFill,
-          {
-            transform: [{ translateX }],
-          },
-        ]}
-      >
+      <Animated.View style={[StyleSheet.absoluteFill, shimmerStyle]}>
         <View style={styles.shimmerBand} />
       </Animated.View>
     </View>
@@ -74,19 +69,6 @@ export function MatchRowSkeleton() {
   );
 }
 
-export function ItemRowSkeleton() {
-  return (
-    <View style={styles.itemRow}>
-      <Skeleton width={56} height={56} radius={12} />
-      <View style={{ flex: 1, gap: 6, paddingLeft: 12 }}>
-        <Skeleton width="60%" height={14} radius={4} />
-        <Skeleton width="35%" height={11} radius={4} />
-      </View>
-      <Skeleton width={64} height={26} radius={10} />
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   shimmerBand: {
     width: 140,
@@ -95,8 +77,8 @@ const styles = StyleSheet.create({
     transform: [{ skewX: '-20deg' }],
   },
   card: {
-    width: Dimensions.get('window').width - 32,
-    height: Dimensions.get('window').height * 0.62,
+    width: WINDOW_WIDTH - 32,
+    height: WINDOW_HEIGHT * 0.70,
     borderRadius: 24,
     backgroundColor: colors.surfaceElevated,
     overflow: 'hidden',
@@ -116,16 +98,6 @@ const styles = StyleSheet.create({
     padding: 14,
     backgroundColor: colors.surfaceElevated,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 10,
-  },
-  itemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     marginBottom: 10,

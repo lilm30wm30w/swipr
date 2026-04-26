@@ -1,5 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, Text, View, Platform } from 'react-native';
+import { StyleSheet, Text, View, Platform } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  runOnJS,
+} from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { colors } from '../theme/colors';
 import { haptic } from '../lib/haptics';
@@ -30,9 +37,14 @@ let nextId = 1;
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toast, setToast] = useState<Toast | null>(null);
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(-20)).current;
+  const opacity = useSharedValue(0);
+  const translateY = useSharedValue(-20);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const toastStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }],
+  }));
 
   const show = useCallback((message: string, type: ToastType = 'info') => {
     const id = nextId++;
@@ -48,17 +60,19 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!toast) return;
-    Animated.parallel([
-      Animated.spring(translateY, { toValue: 0, useNativeDriver: true, damping: 14 }),
-      Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: true }),
-    ]).start();
+
+    translateY.value = -20;
+    opacity.value = 0;
+    translateY.value = withSpring(0, { damping: 14 });
+    opacity.value = withTiming(1, { duration: 180 });
 
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(translateY, { toValue: -20, duration: 200, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }),
-      ]).start(() => setToast(null));
+      translateY.value = withTiming(-20, { duration: 200 });
+      opacity.value = withTiming(0, { duration: 200 }, (finished) => {
+        'worklet';
+        if (finished) runOnJS(setToast)(null);
+      });
     }, 2400);
 
     return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
@@ -77,10 +91,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={{ show, success, error, info }}>
       {children}
       {toast && (
-        <Animated.View
-          pointerEvents="none"
-          style={[styles.wrap, { opacity, transform: [{ translateY }] }]}
-        >
+        <Animated.View pointerEvents="none" style={[styles.wrap, toastStyle]}>
           <BlurView
             intensity={Platform.OS === 'ios' ? 50 : 80}
             tint="dark"

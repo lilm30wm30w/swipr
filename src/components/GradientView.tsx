@@ -24,7 +24,7 @@ export default function GradientView({
       colors={colors as [string, string, ...string[]]}
       start={start}
       end={end}
-      locations={locations as number[] | undefined}
+      locations={locations as readonly [number, number, ...number[]] | undefined}
       style={style}
     >
       {children}

@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, FlatList, StyleSheet,
-  Image, SafeAreaView, RefreshControl,
+  View, Text, StyleSheet,
+  Image, RefreshControl, FlatList,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { MotiView } from 'moti';
 import GradientView from '../../components/GradientView';
 import PressableScale from '../../components/PressableScale';
 import EmptyState from '../../components/EmptyState';
@@ -17,62 +19,22 @@ import { Match, MainStackParamList } from '../../types';
 
 type NavProp = StackNavigationProp<MainStackParamList, 'Tabs'>;
 
-export default function MatchesScreen() {
-  const { user } = useAuth();
-  const { markAllSeen, latestNewMatch } = useMatches();
+function MatchRow({ match, index }: { match: Match; index: number }) {
   const navigation = useNavigation<NavProp>();
-  const [matches, setMatches] = useState<Match[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const other = match.other_profile;
+  const theirItem = match.other_item;
 
-  useFocusEffect(useCallback(() => {
-    fetchMatches();
-    markAllSeen();
-  }, [markAllSeen]));
-
-  useEffect(() => { if (latestNewMatch) fetchMatches(); }, [latestNewMatch]);
-
-  async function fetchMatches() {
-    if (!user) return;
-    setLoading(true);
-    const { data } = await supabase
-      .from('matches')
-      .select(`
-        *,
-        profiles_user1:profiles!matches_user1_id_fkey(id, username, full_name, avatar_url),
-        profiles_user2:profiles!matches_user2_id_fkey(id, username, full_name, avatar_url),
-        items_item1:items!matches_item1_id_fkey(id, title, images),
-        items_item2:items!matches_item2_id_fkey(id, title, images)
-      `)
-      .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
-      .order('created_at', { ascending: false });
-
-    if (data) {
-      const enriched = data.map((m: any) => {
-        const isUser1 = m.user1_id === user.id;
-        return {
-          ...m,
-          other_profile: isUser1 ? m.profiles_user2 : m.profiles_user1,
-          my_item: isUser1 ? m.items_item1 : m.items_item2,
-          other_item: isUser1 ? m.items_item2 : m.items_item1,
-        };
-      });
-      setMatches(enriched);
-    }
-    setLoading(false);
-    setRefreshing(false);
-  }
-
-  function renderMatch({ item: match }: { item: Match }) {
-    const other = match.other_profile;
-    const theirItem = match.other_item;
-
-    return (
+  return (
+    <MotiView
+      from={{ opacity: 0, translateX: -24, scale: 0.96 }}
+      animate={{ opacity: 1, translateX: 0, scale: 1 }}
+      transition={{ type: 'spring', damping: 18, stiffness: 180, delay: index * 55 }}
+    >
       <PressableScale
         style={styles.matchCard}
         onPress={() => other && navigation.navigate('Chat', { matchId: match.id, matchedUser: other })}
         hapticOnPressIn="tap"
-        pressedScale={0.98}
+        pressedScale={0.975}
       >
         <View style={styles.avatarContainer}>
           {other?.avatar_url ? (
@@ -103,17 +65,79 @@ export default function MatchesScreen() {
           </View>
         )}
       </PressableScale>
-    );
+    </MotiView>
+  );
+}
+
+export default function MatchesScreen() {
+  const { user } = useAuth();
+  const { markAllSeen, latestNewMatch } = useMatches();
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useFocusEffect(useCallback(() => {
+    fetchMatches();
+    markAllSeen();
+  }, [markAllSeen]));
+
+  useEffect(() => { if (latestNewMatch) fetchMatches(); }, [latestNewMatch]);
+
+  async function fetchMatches() {
+    if (!user) {
+      setMatches([]);
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const { data } = await supabase
+        .from('matches')
+        .select(`
+          *,
+          profiles_user1:profiles!matches_user1_id_fkey(id, username, full_name, avatar_url),
+          profiles_user2:profiles!matches_user2_id_fkey(id, username, full_name, avatar_url),
+          items_item1:items!matches_item1_id_fkey(id, title, images),
+          items_item2:items!matches_item2_id_fkey(id, title, images)
+        `)
+        .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
+        .order('created_at', { ascending: false });
+
+      if (data) {
+        const enriched = data.map((m: any) => {
+          const isUser1 = m.user1_id === user.id;
+          return {
+            ...m,
+            other_profile: isUser1 ? m.profiles_user2 : m.profiles_user1,
+            my_item: isUser1 ? m.items_item1 : m.items_item2,
+            other_item: isUser1 ? m.items_item2 : m.items_item1,
+          };
+        });
+        setMatches(enriched);
+      } else {
+        setMatches([]);
+      }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+      <MotiView
+        from={{ opacity: 0, translateY: -10 }}
+        animate={{ opacity: 1, translateY: 0 }}
+        transition={{ type: 'spring', damping: 18, stiffness: 200 }}
+        style={styles.header}
+      >
         <Text style={styles.headerTitle}>Matches</Text>
         <Text style={styles.headerSubtitle}>
           {matches.length} active trade{matches.length !== 1 ? 's' : ''}
         </Text>
-      </View>
+      </MotiView>
 
       {loading ? (
         <View style={styles.list}>
@@ -123,7 +147,7 @@ export default function MatchesScreen() {
         <FlatList
           data={matches}
           keyExtractor={(item) => item.id}
-          renderItem={renderMatch}
+          renderItem={({ item, index }) => <MatchRow match={item} index={index} />}
           contentContainerStyle={styles.list}
           refreshControl={
             <RefreshControl
@@ -161,6 +185,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     gap: 14,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
   },
   avatarContainer: { position: 'relative' },
   avatar: { width: 56, height: 56, borderRadius: 28, borderWidth: 2, borderColor: colors.primary },

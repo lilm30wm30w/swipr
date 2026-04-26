@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, StyleSheet, ScrollView,
-  Image, ActivityIndicator, SafeAreaView,
+  Image, ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { MotiView } from 'moti';
 import * as ImagePicker from 'expo-image-picker';
 import GradientView from '../../components/GradientView';
 import PressableScale from '../../components/PressableScale';
@@ -44,13 +46,13 @@ export default function AddItemScreen() {
     }
   }
 
-  async function uploadImage(uri: string, path: string): Promise<string> {
+  async function uploadImage(uri: string, path: string): Promise<{ path: string; url: string }> {
     const response = await fetch(uri);
     const blob = await response.blob();
     const { data, error } = await supabase.storage.from('items').upload(path, blob, { contentType: 'image/jpeg' });
     if (error) throw error;
     const { data: { publicUrl } } = supabase.storage.from('items').getPublicUrl(data.path);
-    return publicUrl;
+    return { path: data.path, url: publicUrl };
   }
 
   async function handleSubmit() {
@@ -58,12 +60,14 @@ export default function AddItemScreen() {
     if (!user) return;
 
     setLoading(true);
+    const uploadedPaths: string[] = [];
     try {
       const uploadedUrls: string[] = [];
       for (const uri of images) {
         const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`;
-        const url = await uploadImage(uri, path);
-        uploadedUrls.push(url);
+        const uploaded = await uploadImage(uri, path);
+        uploadedPaths.push(uploaded.path);
+        uploadedUrls.push(uploaded.url);
       }
 
       const { error } = await supabase.from('items').insert({
@@ -91,6 +95,9 @@ export default function AddItemScreen() {
         if (count >= 5) grantAchievement(user.id, 'curator');
       }
     } catch (e: any) {
+      if (uploadedPaths.length > 0) {
+        await supabase.storage.from('items').remove(uploadedPaths);
+      }
       toast.error(e.message || 'Something went wrong');
     } finally {
       setLoading(false);
@@ -100,10 +107,23 @@ export default function AddItemScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>List an Item</Text>
-        <Text style={styles.subtitle}>Add something you want to trade</Text>
 
-        <View style={styles.section}>
+        <MotiView
+          from={{ opacity: 0, translateY: -12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'spring', damping: 18, stiffness: 200 }}
+        >
+          <Text style={styles.title}>List an Item</Text>
+          <Text style={styles.subtitle}>Add something you want to trade</Text>
+        </MotiView>
+
+        {/* Photos */}
+        <MotiView
+          from={{ opacity: 0, translateX: -16 }}
+          animate={{ opacity: 1, translateX: 0 }}
+          transition={{ type: 'spring', damping: 18, stiffness: 180, delay: 60 }}
+          style={styles.section}
+        >
           <Text style={styles.label}>Photos</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageRow} contentContainerStyle={{ gap: 10 }}>
             {images.map((uri, i) => (
@@ -129,9 +149,15 @@ export default function AddItemScreen() {
               </PressableScale>
             )}
           </ScrollView>
-        </View>
+        </MotiView>
 
-        <View style={styles.section}>
+        {/* Title */}
+        <MotiView
+          from={{ opacity: 0, translateY: 14 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'spring', damping: 18, stiffness: 180, delay: 120 }}
+          style={styles.section}
+        >
           <Text style={styles.label}>Title *</Text>
           <TextInput
             style={styles.input}
@@ -141,9 +167,15 @@ export default function AddItemScreen() {
             onChangeText={setTitle}
             maxLength={60}
           />
-        </View>
+        </MotiView>
 
-        <View style={styles.section}>
+        {/* Description */}
+        <MotiView
+          from={{ opacity: 0, translateY: 14 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'spring', damping: 18, stiffness: 180, delay: 180 }}
+          style={styles.section}
+        >
           <Text style={styles.label}>Description</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
@@ -155,56 +187,91 @@ export default function AddItemScreen() {
             numberOfLines={3}
             maxLength={300}
           />
-        </View>
+        </MotiView>
 
-        <View style={styles.section}>
+        {/* Category chips */}
+        <MotiView
+          from={{ opacity: 0, translateY: 14 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'spring', damping: 18, stiffness: 180, delay: 240 }}
+          style={styles.section}
+        >
           <Text style={styles.label}>Category</Text>
           <View style={styles.chips}>
-            {CATEGORIES.map((cat) => (
-              <PressableScale
-                key={cat}
-                style={[styles.chip, category === cat && styles.chipActive]}
-                onPress={() => setCategory(cat)}
-                hapticOnPressIn="selection"
-                pressedScale={0.94}
-              >
-                <Text style={[styles.chipText, category === cat && styles.chipTextActive]}>
-                  {cat.charAt(0).toUpperCase() + cat.slice(1)}
-                </Text>
-              </PressableScale>
-            ))}
+            {CATEGORIES.map((cat) => {
+              const isActive = category === cat;
+              return (
+                <MotiView
+                  key={cat}
+                  animate={{ scale: isActive ? 1.06 : 1 }}
+                  transition={{ type: 'spring', damping: 10, stiffness: 320 }}
+                >
+                  <PressableScale
+                    style={[styles.chip, isActive && styles.chipActive]}
+                    onPress={() => setCategory(cat)}
+                    hapticOnPressIn="selection"
+                    pressedScale={0.94}
+                  >
+                    <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
+                      {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                    </Text>
+                  </PressableScale>
+                </MotiView>
+              );
+            })}
           </View>
-        </View>
+        </MotiView>
 
-        <View style={styles.section}>
+        {/* Condition chips */}
+        <MotiView
+          from={{ opacity: 0, translateY: 14 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'spring', damping: 18, stiffness: 180, delay: 300 }}
+          style={styles.section}
+        >
           <Text style={styles.label}>Condition</Text>
           <View style={styles.chips}>
-            {CONDITIONS.map((cond) => (
-              <PressableScale
-                key={cond}
-                style={[styles.chip, condition === cond && styles.chipActive]}
-                onPress={() => setCondition(cond)}
-                hapticOnPressIn="selection"
-                pressedScale={0.94}
-              >
-                <Text style={[styles.chipText, condition === cond && styles.chipTextActive]}>
-                  {CONDITION_LABELS[cond]}
-                </Text>
-              </PressableScale>
-            ))}
+            {CONDITIONS.map((cond) => {
+              const isActive = condition === cond;
+              return (
+                <MotiView
+                  key={cond}
+                  animate={{ scale: isActive ? 1.06 : 1 }}
+                  transition={{ type: 'spring', damping: 10, stiffness: 320 }}
+                >
+                  <PressableScale
+                    style={[styles.chip, isActive && styles.chipActive]}
+                    onPress={() => setCondition(cond)}
+                    hapticOnPressIn="selection"
+                    pressedScale={0.94}
+                  >
+                    <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
+                      {CONDITION_LABELS[cond]}
+                    </Text>
+                  </PressableScale>
+                </MotiView>
+              );
+            })}
           </View>
-        </View>
+        </MotiView>
 
-        <PressableScale
-          style={styles.submitBtn}
-          onPress={handleSubmit}
-          disabled={loading}
-          hapticOnPressIn="press"
+        <MotiView
+          from={{ opacity: 0, translateY: 12 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'spring', damping: 16, stiffness: 160, delay: 360 }}
         >
-          <GradientView colors={[colors.primary, colors.primaryDark]} style={styles.submitGradient}>
-            {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>List Item</Text>}
-          </GradientView>
-        </PressableScale>
+          <PressableScale
+            style={styles.submitBtn}
+            onPress={handleSubmit}
+            disabled={loading}
+            hapticOnPressIn="press"
+          >
+            <GradientView colors={[colors.primary, colors.primaryDark]} style={styles.submitGradient}>
+              {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>List Item</Text>}
+            </GradientView>
+          </PressableScale>
+        </MotiView>
+
       </ScrollView>
     </SafeAreaView>
   );
@@ -216,7 +283,10 @@ const styles = StyleSheet.create({
   title: { fontSize: 30, fontWeight: '800', color: colors.text, marginBottom: 4, letterSpacing: -0.5 },
   subtitle: { fontSize: 15, color: colors.textSecondary, marginBottom: 24 },
   section: { marginBottom: 22 },
-  label: { fontSize: 13, fontWeight: '700', color: colors.textSecondary, marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 },
+  label: {
+    fontSize: 13, fontWeight: '700', color: colors.textSecondary,
+    marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1,
+  },
   input: {
     backgroundColor: colors.surfaceElevated,
     borderRadius: 14,
@@ -232,7 +302,8 @@ const styles = StyleSheet.create({
   imagePreview: { width: 92, height: 92, borderRadius: 14 },
   removeOverlay: {
     position: 'absolute', top: 4, right: 4, width: 22, height: 22,
-    borderRadius: 11, backgroundColor: 'rgba(239,68,68,0.95)', justifyContent: 'center', alignItems: 'center',
+    borderRadius: 11, backgroundColor: 'rgba(239,68,68,0.95)',
+    justifyContent: 'center', alignItems: 'center',
   },
   removeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   addImageBtn: {

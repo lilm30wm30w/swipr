@@ -1,6 +1,19 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, Animated, Easing, Dimensions } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, StyleSheet, Dimensions, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { ThemeMode } from '../context/ThemeContext';
+import { Canvas, Circle, BlurMask } from '@shopify/react-native-skia';
+import Animated, {
+  useSharedValue,
+  useDerivedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  runOnJS,
+  interpolate,
+  Easing,
+} from 'react-native-reanimated';
 
 const { width, height } = Dimensions.get('window');
 
@@ -9,6 +22,13 @@ type Palette = {
   gradient: readonly [string, string, string, string];
   blobA: string;
   blobB: string;
+};
+
+const LIGHT_PALETTE: Palette = {
+  name: 'light',
+  gradient: ['#EDE9FE', '#DDD6FE', '#C4B5FD', '#A78BFA'],
+  blobA: 'rgba(139,92,246,0.28)',
+  blobB: 'rgba(167,139,250,0.22)',
 };
 
 const PALETTES: Palette[] = [
@@ -63,88 +83,114 @@ const PALETTES: Palette[] = [
 ];
 
 function paletteForHour(hour: number): Palette {
-  if (hour >= 5 && hour < 7) return PALETTES[1];   // dawn
-  if (hour >= 7 && hour < 11) return PALETTES[2];  // morning
-  if (hour >= 11 && hour < 14) return PALETTES[3]; // midday
-  if (hour >= 14 && hour < 17) return PALETTES[4]; // afternoon
-  if (hour >= 17 && hour < 19) return PALETTES[5]; // sunset
-  if (hour >= 19 && hour < 22) return PALETTES[6]; // dusk
-  if (hour >= 22 || hour < 2) return PALETTES[0];  // night
-  return PALETTES[7]; // lateNight (2-5am)
+  if (hour >= 5 && hour < 7) return PALETTES[1];
+  if (hour >= 7 && hour < 11) return PALETTES[2];
+  if (hour >= 11 && hour < 14) return PALETTES[3];
+  if (hour >= 14 && hour < 17) return PALETTES[4];
+  if (hour >= 17 && hour < 19) return PALETTES[5];
+  if (hour >= 19 && hour < 22) return PALETTES[6];
+  if (hour >= 22 || hour < 2) return PALETTES[0];
+  return PALETTES[7];
 }
 
-export default function AnimatedBackground() {
+interface Props {
+  mode?: ThemeMode;
+}
+
+export default function AnimatedBackground({ mode = 'auto' }: Props) {
   const [current, setCurrent] = useState<Palette>(() => paletteForHour(new Date().getHours()));
   const [incoming, setIncoming] = useState<Palette | null>(null);
-  const fade = useRef(new Animated.Value(0)).current;
-  const breath = useRef(new Animated.Value(0)).current;
-  const blobA = useRef(new Animated.Value(0)).current;
-  const blobB = useRef(new Animated.Value(0)).current;
-  const blobC = useRef(new Animated.Value(0)).current;
 
+  const fade = useSharedValue(0);
+  const breath = useSharedValue(0);
+  const blobA = useSharedValue(0);
+  const blobB = useSharedValue(0);
+  const blobC = useSharedValue(0);
+
+  // Palette crossfade — responds to mode changes and hourly ticks in auto mode
   useEffect(() => {
-    const check = () => {
-      const next = paletteForHour(new Date().getHours());
+    const crossfadeTo = (target: Palette) => {
       setCurrent((prev) => {
-        if (next.name === prev.name) return prev;
-        setIncoming(next);
-        fade.setValue(0);
-        Animated.timing(fade, {
-          toValue: 1,
-          duration: 2400,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }).start(() => {
-          setCurrent(next);
-          setIncoming(null);
-          fade.setValue(0);
+        if (target.name === prev.name) return prev;
+        setIncoming(target);
+        fade.value = 0;
+        fade.value = withTiming(1, { duration: 1600, easing: Easing.inOut(Easing.ease) }, (finished) => {
+          'worklet';
+          if (finished) {
+            runOnJS(setCurrent)(target);
+            runOnJS(setIncoming)(null);
+            fade.value = 0;
+          }
         });
         return prev;
       });
     };
 
+    if (mode === 'dark') {
+      crossfadeTo(PALETTES[7]); // lateNight
+      return;
+    }
+    if (mode === 'light') {
+      crossfadeTo(LIGHT_PALETTE);
+      return;
+    }
+
+    // auto: time-based, check every minute
+    const check = () => crossfadeTo(paletteForHour(new Date().getHours()));
+    check();
     const interval = setInterval(check, 60_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [mode]);
 
+  // Looping ambient animations — all on the UI thread
   useEffect(() => {
-    const breathLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(breath, { toValue: 1, duration: 6000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        Animated.timing(breath, { toValue: 0, duration: 6000, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-      ])
-    );
-
-    const mkBlob = (v: Animated.Value, duration: number) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(v, { toValue: 1, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-          Animated.timing(v, { toValue: 0, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
-        ])
+    const mkLoop = (v: ReturnType<typeof useSharedValue<number>>, duration: number) => {
+      v.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration, easing: Easing.inOut(Easing.sin) }),
+          withTiming(0, { duration, easing: Easing.inOut(Easing.sin) }),
+        ),
+        -1,
+        false,
       );
+    };
 
-    const loops = [
-      breathLoop,
-      mkBlob(blobA, 9000),
-      mkBlob(blobB, 11000),
-      mkBlob(blobC, 13000),
-    ];
-    loops.forEach((l) => l.start());
-    return () => loops.forEach((l) => l.stop());
+    mkLoop(breath, 6000);
+    mkLoop(blobA, 9000);
+    mkLoop(blobB, 11000);
+    mkLoop(blobC, 13000);
   }, []);
 
-  const breathOpacity = breath.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] });
+  // Animated styles for gradient layers
+  const breathStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(breath.value, [0, 1], [0.92, 1]),
+  }));
+  const fadeStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
 
-  const aX = blobA.interpolate({ inputRange: [0, 1], outputRange: [-40, 60] });
-  const aY = blobA.interpolate({ inputRange: [0, 1], outputRange: [-30, 50] });
-  const bX = blobB.interpolate({ inputRange: [0, 1], outputRange: [50, -50] });
-  const bY = blobB.interpolate({ inputRange: [0, 1], outputRange: [30, -40] });
-  const cX = blobC.interpolate({ inputRange: [0, 1], outputRange: [-20, 40] });
-  const cY = blobC.interpolate({ inputRange: [0, 1], outputRange: [20, -30] });
+  // Blob positions — DerivedValues feed directly into Skia Canvas (UI-thread reactive)
+  const aCx = useDerivedValue(() =>
+    interpolate(blobA.value, [0, 1], [width * 0.1 - 40, width * 0.1 + 60]),
+  );
+  const aCy = useDerivedValue(() =>
+    interpolate(blobA.value, [0, 1], [height * 0.18 - 30, height * 0.18 + 50]),
+  );
+  const bCx = useDerivedValue(() =>
+    interpolate(blobB.value, [0, 1], [width * 0.75 + 50, width * 0.75 - 50]),
+  );
+  const bCy = useDerivedValue(() =>
+    interpolate(blobB.value, [0, 1], [height * 0.62 + 30, height * 0.62 - 40]),
+  );
+  const cCx = useDerivedValue(() =>
+    interpolate(blobC.value, [0, 1], [width * 0.35 - 20, width * 0.35 + 40]),
+  );
+  const cCy = useDerivedValue(() =>
+    interpolate(blobC.value, [0, 1], [height * 0.4 + 20, height * 0.4 - 30]),
+  );
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      <Animated.View style={[StyleSheet.absoluteFill, { opacity: breathOpacity }]}>
+      {/* Base gradient — breathes with opacity */}
+      <Animated.View style={[StyleSheet.absoluteFill, breathStyle]}>
         <LinearGradient
           colors={current.gradient}
           start={{ x: 0, y: 0 }}
@@ -153,8 +199,9 @@ export default function AnimatedBackground() {
         />
       </Animated.View>
 
+      {/* Incoming palette crossfade */}
       {incoming ? (
-        <Animated.View style={[StyleSheet.absoluteFill, { opacity: fade }]}>
+        <Animated.View style={[StyleSheet.absoluteFill, fadeStyle]}>
           <LinearGradient
             colors={incoming.gradient}
             start={{ x: 0, y: 0 }}
@@ -164,47 +211,22 @@ export default function AnimatedBackground() {
         </Animated.View>
       ) : null}
 
-      <Animated.View
-        style={[
-          styles.blob,
-          {
-            width: width * 0.9,
-            height: width * 0.9,
-            top: -width * 0.25,
-            left: -width * 0.2,
-            backgroundColor: current.blobA,
-            transform: [{ translateX: aX }, { translateY: aY }],
-          },
-        ]}
-      />
-      <Animated.View
-        style={[
-          styles.blob,
-          {
-            width: width * 0.85,
-            height: width * 0.85,
-            top: height * 0.45,
-            right: -width * 0.25,
-            backgroundColor: current.blobB,
-            transform: [{ translateX: bX }, { translateY: bY }],
-          },
-        ]}
-      />
-      <Animated.View
-        style={[
-          styles.blob,
-          {
-            width: width * 0.7,
-            height: width * 0.7,
-            top: height * 0.2,
-            left: width * 0.15,
-            backgroundColor: current.blobA,
-            opacity: 0.55,
-            transform: [{ translateX: cX }, { translateY: cY }],
-          },
-        ]}
-      />
+      {/* Skia Canvas: blurred orbs — skipped on Android (new arch incompatibility) */}
+      {Platform.OS !== 'android' ? (
+        <Canvas style={StyleSheet.absoluteFill}>
+          <Circle cx={aCx} cy={aCy} r={width * 0.46} color={current.blobA}>
+            <BlurMask blur={90} style="normal" />
+          </Circle>
+          <Circle cx={bCx} cy={bCy} r={width * 0.44} color={current.blobB}>
+            <BlurMask blur={80} style="normal" />
+          </Circle>
+          <Circle cx={cCx} cy={cCy} r={width * 0.36} color={current.blobA} opacity={0.55}>
+            <BlurMask blur={70} style="normal" />
+          </Circle>
+        </Canvas>
+      ) : null}
 
+      {/* Bottom vignette */}
       <LinearGradient
         colors={['rgba(0,0,0,0)', 'rgba(10,5,20,0.35)']}
         start={{ x: 0.5, y: 0.2 }}
@@ -214,10 +236,3 @@ export default function AnimatedBackground() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  blob: {
-    position: 'absolute',
-    borderRadius: 9999,
-  },
-});

@@ -1,13 +1,21 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { View, Text, StyleSheet, Animated, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { useAuth } from '../context/AuthContext';
 import { useMatches } from '../context/MatchesContext';
 import { colors } from '../theme/colors';
 import { RootStackParamList, AuthStackParamList, MainTabParamList, MainStackParamList } from '../types';
 import SwiprLogo from '../components/SwiprLogo';
+import PressableScale from '../components/PressableScale';
+import GradientView from '../components/GradientView';
 
 import LoginScreen from '../screens/Auth/LoginScreen';
 import SignupScreen from '../screens/Auth/SignupScreen';
@@ -39,34 +47,29 @@ const navTheme = {
 
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = { Discover: '🔥', Matches: '🤝', AddItem: '➕', Profile: '👤' };
-  const scale = useRef(new Animated.Value(focused ? 1 : 0.88)).current;
-  const bgOpacity = useRef(new Animated.Value(focused ? 1 : 0)).current;
+  const scale = useSharedValue(focused ? 1.08 : 0.92);
+  const bgOpacity = useSharedValue(focused ? 1 : 0);
+  const bgScale = useSharedValue(focused ? 1 : 0.6);
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.spring(scale, {
-        toValue: focused ? 1.08 : 0.92,
-        useNativeDriver: true,
-        damping: 10,
-        stiffness: 180,
-      }),
-      Animated.timing(bgOpacity, {
-        toValue: focused ? 1 : 0,
-        duration: 180,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    scale.value = withSpring(focused ? 1.1 : 0.92, { damping: 9, stiffness: 200, mass: 0.7 });
+    bgOpacity.value = withTiming(focused ? 1 : 0, { duration: 180 });
+    bgScale.value = withSpring(focused ? 1 : 0.6, { damping: 12, stiffness: 240 });
   }, [focused]);
+
+  const iconStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const bgStyle = useAnimatedStyle(() => ({
+    opacity: bgOpacity.value,
+    transform: [{ scale: bgScale.value }],
+  }));
 
   return (
     <View style={styles.tabIconWrap}>
-      <Animated.View
-        style={[
-          styles.tabIconBg,
-          { opacity: bgOpacity, transform: [{ scale: bgOpacity.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) }] },
-        ]}
-      />
-      <Animated.Text style={[styles.tabEmoji, { transform: [{ scale }] }]}>
+      <Animated.View style={[styles.tabIconBg, bgStyle]} />
+      <Animated.Text style={[styles.tabIconText, iconStyle]}>
         {icons[name]}
       </Animated.Text>
     </View>
@@ -150,12 +153,35 @@ function AuthNavigator() {
 }
 
 export default function AppNavigator() {
-  const { session, profile, loading } = useAuth();
+  const { session, profile, profileError, loading, refreshProfile, signOut } = useAuth();
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <SwiprLogo size={48} animated />
+      </View>
+    );
+  }
+
+  if (session && profileError) {
+    return (
+      <View style={styles.loadingContainer}>
+        <View style={styles.errorCard}>
+          <SwiprLogo size={40} showTrail={false} />
+          <Text style={styles.errorTitle}>Profile unavailable</Text>
+          <Text style={styles.errorText}>
+            We couldn't finish loading your account. Check your database setup, then retry.
+          </Text>
+          <Text style={styles.errorDetail}>{profileError}</Text>
+          <PressableScale onPress={refreshProfile} style={styles.errorButton} hapticOnPressIn="press">
+            <GradientView colors={[colors.primary, colors.primaryDark]} style={styles.errorButtonGradient}>
+              <Text style={styles.errorButtonText}>Retry</Text>
+            </GradientView>
+          </PressableScale>
+          <PressableScale onPress={signOut} style={styles.signOutFallback} hapticOnPressIn="tap">
+            <Text style={styles.signOutFallbackText}>Sign Out</Text>
+          </PressableScale>
+        </View>
       </View>
     );
   }
@@ -189,8 +215,28 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center', alignItems: 'center',
   },
+  errorCard: {
+    width: '100%',
+    maxWidth: 420,
+    padding: 24,
+    borderRadius: 24,
+    backgroundColor: 'rgba(18,12,34,0.92)',
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    gap: 12,
+    marginHorizontal: 20,
+  },
+  errorTitle: { fontSize: 24, fontWeight: '800', color: colors.text },
+  errorText: { fontSize: 14, lineHeight: 21, color: colors.textSecondary, textAlign: 'center' },
+  errorDetail: { fontSize: 12, lineHeight: 18, color: colors.textMuted, textAlign: 'center' },
+  errorButton: { width: '100%', borderRadius: 16, overflow: 'hidden', marginTop: 4 },
+  errorButtonGradient: { paddingVertical: 16, alignItems: 'center' },
+  errorButtonText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  signOutFallback: { paddingVertical: 10 },
+  signOutFallbackText: { color: colors.danger, fontSize: 14, fontWeight: '700' },
   tabBar: {
-    backgroundColor: 'rgba(10,5,20,0.78)',
+    backgroundColor: 'rgba(10,5,20,0.82)',
     borderTopColor: 'rgba(167,139,250,0.18)',
     borderTopWidth: StyleSheet.hairlineWidth,
     height: Platform.OS === 'ios' ? 84 : 64,
@@ -205,9 +251,9 @@ const styles = StyleSheet.create({
   tabIconBg: {
     position: 'absolute',
     width: 44, height: 30, borderRadius: 16,
-    backgroundColor: `${colors.primary}26`,
+    backgroundColor: `${colors.primary}28`,
   },
-  tabEmoji: { fontSize: 20 },
+  tabIconText: { fontSize: 20, color: colors.text },
   tabLabel: { fontSize: 11, fontWeight: '500', color: colors.textMuted, marginTop: 2 },
   tabLabelFocused: { fontWeight: '700', color: colors.primaryLight },
   tabBadge: {
