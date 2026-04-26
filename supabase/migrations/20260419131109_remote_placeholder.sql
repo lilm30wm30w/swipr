@@ -1,3 +1,0 @@
--- Remote migration placeholder.
--- This version already exists in the linked Supabase project and is tracked
--- locally only to align migration history safely.

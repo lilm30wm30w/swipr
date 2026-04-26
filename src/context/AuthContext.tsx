@@ -1,7 +1,6 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
-import { removePushToken, syncPushToken } from '../lib/notifications';
 import { Profile } from '../types';
 
 interface AuthContextType {
@@ -30,8 +29,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const pushTokenRef = useRef<string | null>(null);
-  const previousUserIdRef = useRef<string | null>(null);
 
   async function fetchProfile(userId: string) {
     try {
@@ -57,23 +54,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (user) await fetchProfile(user.id);
   }
 
-  async function syncNotifications(nextUserId: string | null) {
-    const previousUserId = previousUserIdRef.current;
-
-    if (!nextUserId) {
-      if (previousUserId && pushTokenRef.current) {
-        await removePushToken(previousUserId, pushTokenRef.current);
-      }
-      pushTokenRef.current = null;
-      previousUserIdRef.current = null;
-      return;
-    }
-
-    const token = await syncPushToken(nextUserId);
-    pushTokenRef.current = token;
-    previousUserIdRef.current = nextUserId;
-  }
-
   useEffect(() => {
     let mounted = true;
     supabase.auth.getSession()
@@ -82,13 +62,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         setProfileError(null);
-        if (session?.user) {
-          await fetchProfile(session.user.id);
-          await syncNotifications(session.user.id);
-        } else {
-          setProfile(null);
-          await syncNotifications(null);
-        }
+        if (session?.user) await fetchProfile(session.user.id);
+        else setProfile(null);
       })
       .catch(() => {
         if (!mounted) return;
@@ -96,7 +71,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
         setProfile(null);
         setProfileError(null);
-        syncNotifications(null);
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -108,12 +82,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(session?.user ?? null);
       setProfileError(null);
       if (session?.user) {
-        fetchProfile(session.user.id)
-          .then(() => syncNotifications(session.user.id))
-          .finally(() => setLoading(false));
+        fetchProfile(session.user.id).finally(() => setLoading(false));
       } else {
         setProfile(null);
-        syncNotifications(null).finally(() => setLoading(false));
+        setLoading(false);
       }
     });
 
@@ -124,11 +96,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   async function signOut() {
-    if (user && pushTokenRef.current) {
-      await removePushToken(user.id, pushTokenRef.current);
-      pushTokenRef.current = null;
-      previousUserIdRef.current = null;
-    }
     await supabase.auth.signOut();
   }
 

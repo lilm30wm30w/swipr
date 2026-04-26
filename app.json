@@ -38,7 +38,6 @@
           "photosPermission": "Swipr needs access to your photos to add item images."
         }
       ],
-      "expo-notifications",
       "expo-secure-store"
     ],
     "extra": {
