@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Dimensions, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { ThemeMode } from '../context/ThemeContext';
 import { Canvas, Circle, BlurMask } from '@shopify/react-native-skia';
 import Animated, {
   useSharedValue,
@@ -21,6 +22,13 @@ type Palette = {
   gradient: readonly [string, string, string, string];
   blobA: string;
   blobB: string;
+};
+
+const LIGHT_PALETTE: Palette = {
+  name: 'light',
+  gradient: ['#EDE9FE', '#DDD6FE', '#C4B5FD', '#A78BFA'],
+  blobA: 'rgba(139,92,246,0.28)',
+  blobB: 'rgba(167,139,250,0.22)',
 };
 
 const PALETTES: Palette[] = [
@@ -85,7 +93,11 @@ function paletteForHour(hour: number): Palette {
   return PALETTES[7];
 }
 
-export default function AnimatedBackground() {
+interface Props {
+  mode?: ThemeMode;
+}
+
+export default function AnimatedBackground({ mode = 'auto' }: Props) {
   const [current, setCurrent] = useState<Palette>(() => paletteForHour(new Date().getHours()));
   const [incoming, setIncoming] = useState<Palette | null>(null);
 
@@ -95,18 +107,17 @@ export default function AnimatedBackground() {
   const blobB = useSharedValue(0);
   const blobC = useSharedValue(0);
 
-  // Palette crossfade on the hour
+  // Palette crossfade — responds to mode changes and hourly ticks in auto mode
   useEffect(() => {
-    const check = () => {
-      const next = paletteForHour(new Date().getHours());
+    const crossfadeTo = (target: Palette) => {
       setCurrent((prev) => {
-        if (next.name === prev.name) return prev;
-        setIncoming(next);
+        if (target.name === prev.name) return prev;
+        setIncoming(target);
         fade.value = 0;
-        fade.value = withTiming(1, { duration: 2400, easing: Easing.inOut(Easing.ease) }, (finished) => {
+        fade.value = withTiming(1, { duration: 1600, easing: Easing.inOut(Easing.ease) }, (finished) => {
           'worklet';
           if (finished) {
-            runOnJS(setCurrent)(next);
+            runOnJS(setCurrent)(target);
             runOnJS(setIncoming)(null);
             fade.value = 0;
           }
@@ -114,9 +125,22 @@ export default function AnimatedBackground() {
         return prev;
       });
     };
+
+    if (mode === 'dark') {
+      crossfadeTo(PALETTES[7]); // lateNight
+      return;
+    }
+    if (mode === 'light') {
+      crossfadeTo(LIGHT_PALETTE);
+      return;
+    }
+
+    // auto: time-based, check every minute
+    const check = () => crossfadeTo(paletteForHour(new Date().getHours()));
+    check();
     const interval = setInterval(check, 60_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [mode]);
 
   // Looping ambient animations — all on the UI thread
   useEffect(() => {

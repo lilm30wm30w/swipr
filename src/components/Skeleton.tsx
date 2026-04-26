@@ -69,19 +69,6 @@ export function MatchRowSkeleton() {
   );
 }
 
-export function ItemRowSkeleton() {
-  return (
-    <View style={styles.itemRow}>
-      <Skeleton width={56} height={56} radius={12} />
-      <View style={{ flex: 1, gap: 6, paddingLeft: 12 }}>
-        <Skeleton width="60%" height={14} radius={4} />
-        <Skeleton width="35%" height={11} radius={4} />
-      </View>
-      <Skeleton width={64} height={26} radius={10} />
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   shimmerBand: {
     width: 140,
@@ -91,7 +78,7 @@ const styles = StyleSheet.create({
   },
   card: {
     width: WINDOW_WIDTH - 32,
-    height: WINDOW_HEIGHT * 0.62,
+    height: WINDOW_HEIGHT * 0.70,
     borderRadius: 24,
     backgroundColor: colors.surfaceElevated,
     overflow: 'hidden',
@@ -111,16 +98,6 @@ const styles = StyleSheet.create({
     padding: 14,
     backgroundColor: colors.surfaceElevated,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 10,
-  },
-  itemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     marginBottom: 10,

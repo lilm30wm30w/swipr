@@ -17,7 +17,7 @@ import { haptic } from '../lib/haptics';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH - 32;
-const CARD_HEIGHT = SCREEN_HEIGHT * 0.62;
+const CARD_HEIGHT = SCREEN_HEIGHT * 0.70;
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.32;
 const VELOCITY_THRESHOLD = 900;
 
@@ -147,8 +147,12 @@ export default function SwipeCard({ item, onSwipeLeft, onSwipeRight, isTop, onOp
     opacity: interpolate(tx.value, [-140, -20], [0.5, 0], Extrapolation.CLAMP),
   }));
 
-  const imageUri = item.images?.[imageIndex] || null;
-  const conditionLabel = { new: 'New', like_new: 'Like New', good: 'Good', fair: 'Fair' }[item.condition];
+  const itemImages = Array.isArray(item.images) ? item.images : [];
+  const imageUri = itemImages[imageIndex] || null;
+  const conditionLabel = { new: 'New', like_new: 'Like New', good: 'Good', fair: 'Fair' }[item.condition] ?? 'Good';
+  const categoryLabel = item.category
+    ? item.category.charAt(0).toUpperCase() + item.category.slice(1)
+    : 'Other';
 
   return (
     <GestureDetector gesture={pan}>
@@ -157,7 +161,7 @@ export default function SwipeCard({ item, onSwipeLeft, onSwipeRight, isTop, onOp
           activeOpacity={1}
           onPress={() => {
             haptic.selection();
-            setImageIndex((i) => (i + 1) % Math.max(item.images.length, 1));
+            setImageIndex((i) => (i + 1) % Math.max(itemImages.length, 1));
           }}
           style={styles.imageContainer}
         >
@@ -168,9 +172,9 @@ export default function SwipeCard({ item, onSwipeLeft, onSwipeRight, isTop, onOp
               <Text style={styles.placeholderIcon}>📦</Text>
             </View>
           )}
-          {item.images.length > 1 && (
+          {itemImages.length > 1 && (
             <View style={styles.dots}>
-              {item.images.map((_, i) => (
+              {itemImages.map((_, i) => (
                 <View key={i} style={[styles.dot, i === imageIndex && styles.dotActive]} />
               ))}
             </View>
@@ -203,7 +207,7 @@ export default function SwipeCard({ item, onSwipeLeft, onSwipeRight, isTop, onOp
               <Text style={styles.conditionText}>{conditionLabel}</Text>
             </View>
           </View>
-          <Text style={styles.category}>{item.category.charAt(0).toUpperCase() + item.category.slice(1)}</Text>
+          <Text style={styles.category}>{categoryLabel}</Text>
           {item.description ? (
             <Text style={styles.description} numberOfLines={2}>{item.description}</Text>
           ) : null}

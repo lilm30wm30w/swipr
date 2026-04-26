@@ -8,7 +8,6 @@ const config = getDefaultConfig(__dirname);
 config.resolver.extraNodeModules = {
   ...config.resolver.extraNodeModules,
   react: path.resolve(__dirname, 'node_modules/react'),
-  'react-dom': path.resolve(__dirname, 'node_modules/react-dom'),
   'react-native': path.resolve(__dirname, 'node_modules/react-native'),
 };
 

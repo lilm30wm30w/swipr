@@ -9,8 +9,8 @@ import * as ImagePicker from 'expo-image-picker';
 import GradientView from '../../components/GradientView';
 import PressableScale from '../../components/PressableScale';
 import EmptyState from '../../components/EmptyState';
-import ProfileHero from '../../components/ProfileHero';
 import ProfileEditSheet from '../../components/ProfileEditSheet';
+import SettingsSheet from '../../components/SettingsSheet';
 import AchievementsRow from '../../components/AchievementsRow';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
@@ -26,6 +26,7 @@ export default function ProfileScreen() {
   const [myItems, setMyItems] = useState<Item[]>([]);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useFocusEffect(useCallback(() => { fetchMyItems(); }, []));
 
@@ -144,7 +145,14 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ProfileHero />
+      <PressableScale
+        style={styles.settingsBtn}
+        onPress={() => setSettingsOpen(true)}
+        hapticOnPressIn="tap"
+        pressedScale={0.88}
+      >
+        <Text style={styles.settingsIcon}>⚙️</Text>
+      </PressableScale>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
         {/* Avatar + identity */}
@@ -244,12 +252,15 @@ export default function ProfileScreen() {
       </ScrollView>
 
       <ProfileEditSheet visible={editOpen} onClose={() => setEditOpen(false)} />
+      <SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  settingsBtn: { position: 'absolute', top: 16, right: 20, zIndex: 10, padding: 6 },
+  settingsIcon: { fontSize: 22 },
   content: { padding: 20, paddingTop: 96, paddingBottom: 40 },
   profileHeader: { alignItems: 'center', gap: 6, marginBottom: 24 },
   avatarContainer: { position: 'relative', marginBottom: 6 },

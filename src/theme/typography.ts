@@ -72,5 +72,3 @@ export const typography = {
     letterSpacing: 0.3,
   },
 } satisfies Record<string, TextStyle>;
-
-export type TypeToken = keyof typeof typography;

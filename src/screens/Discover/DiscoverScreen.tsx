@@ -1,21 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Dimensions,
+  View, Text, StyleSheet, ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withRepeat,
-  withSequence,
-  withTiming,
   withSpring,
   interpolate,
-  Extrapolation,
   type SharedValue,
 } from 'react-native-reanimated';
 import { MotiView } from 'moti';
-import GradientView from '../../components/GradientView';
 import PressableScale from '../../components/PressableScale';
 import SwiprLogo from '../../components/SwiprLogo';
 import { useAuth } from '../../context/AuthContext';
@@ -33,8 +28,6 @@ import { currentGreeting } from '../../lib/greeting';
 import { grantAchievement } from '../../lib/achievements';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { MainStackParamList } from '../../types';
-
-const { width } = Dimensions.get('window');
 
 type Props = { navigation: StackNavigationProp<MainStackParamList, 'Tabs'> };
 
@@ -84,38 +77,6 @@ export default function DiscoverScreen({ navigation }: Props) {
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const undoAnim = useSharedValue(0);
 
-  // Trade button pulse glow
-  const tradePulse = useSharedValue(0);
-  useEffect(() => {
-    tradePulse.value = withRepeat(
-      withSequence(
-        withTiming(1, { duration: 1800 }),
-        withTiming(0, { duration: 600 }),
-      ),
-      -1,
-      false,
-    );
-  }, []);
-
-  const pulseRingStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(tradePulse.value, [0, 0.45, 1], [0, 0.5, 0], Extrapolation.CLAMP),
-    transform: [{ scale: interpolate(tradePulse.value, [0, 1], [1, 1.75]) }],
-  }));
-
-  // Pass button glow on press (driven by shared value)
-  const passGlow = useSharedValue(0);
-  const tradeGlow = useSharedValue(0);
-
-  const passGlowStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(passGlow.value, [0, 1], [0, 0.7], Extrapolation.CLAMP),
-    transform: [{ scale: interpolate(passGlow.value, [0, 1], [0.9, 1.4]) }],
-  }));
-
-  const tradeGlowStyle2 = useAnimatedStyle(() => ({
-    opacity: interpolate(tradeGlow.value, [0, 1], [0, 0.7], Extrapolation.CLAMP),
-    transform: [{ scale: interpolate(tradeGlow.value, [0, 1], [0.9, 1.4]) }],
-  }));
-
   useEffect(() => { fetchItems(); }, [selectedCategory]);
 
   useEffect(() => {
@@ -153,42 +114,58 @@ export default function DiscoverScreen({ navigation }: Props) {
   async function fetchItems() {
     if (!user) return;
     setLoading(true);
-    const { data } = await supabase.rpc('discover_feed', {
-      p_category: selectedCategory === 'All' ? null : selectedCategory.toLowerCase(),
-      p_limit: 50,
-    });
+    try {
+      const { data, error } = await supabase.rpc('discover_feed', {
+        p_category: selectedCategory === 'All' ? null : selectedCategory.toLowerCase(),
+        p_limit: 50,
+      });
 
-    const rawItems = (data ?? []).map((item: any) => ({
-      id: item.id,
-      user_id: item.user_id,
-      title: item.title,
-      description: item.description,
-      category: item.category,
-      condition: item.condition,
-      images: item.images ?? [],
-      is_available: item.is_available,
-      created_at: item.created_at,
-      profiles: {
-        id: item.profile_id,
-        username: item.profile_username,
-        full_name: item.profile_full_name,
-        avatar_url: item.profile_avatar_url,
-      },
-    }));
-    const tags = (profile?.interests ?? []).map((t) => t.toLowerCase());
-    const ranked = tags.length > 0
-      ? [...rawItems].sort((a, b) => {
-          const score = (it: any) => {
-            const hay = `${it.title ?? ''} ${it.description ?? ''}`.toLowerCase();
-            return tags.reduce((s, t) => (hay.includes(t) ? s + 1 : s), 0);
-          };
-          return score(b) - score(a);
-        })
-      : rawItems;
+      if (error) {
+        throw error;
+      }
 
-    setItems(ranked);
-    setCurrentIndex(0);
-    setLoading(false);
+      const rawItems = (data ?? []).map((item: any) => ({
+        id: String(item.id),
+        user_id: String(item.user_id),
+        title: typeof item.title === 'string' && item.title.trim().length > 0 ? item.title : 'Untitled item',
+        description: typeof item.description === 'string' ? item.description : null,
+        category: typeof item.category === 'string' && item.category.length > 0 ? item.category : 'other',
+        condition:
+          item.condition === 'new' || item.condition === 'like_new' || item.condition === 'good' || item.condition === 'fair'
+            ? item.condition
+            : 'good',
+        images: Array.isArray(item.images) ? item.images.filter((image: unknown): image is string => typeof image === 'string' && image.length > 0) : [],
+        is_available: item.is_available !== false,
+        created_at: typeof item.created_at === 'string' ? item.created_at : new Date().toISOString(),
+        profiles: item.profile_id
+          ? {
+              id: String(item.profile_id),
+              username: typeof item.profile_username === 'string' ? item.profile_username : 'unknown',
+              full_name: typeof item.profile_full_name === 'string' ? item.profile_full_name : null,
+              avatar_url: typeof item.profile_avatar_url === 'string' ? item.profile_avatar_url : null,
+            }
+          : undefined,
+      }));
+      const tags = (profile?.interests ?? []).map((t) => t.toLowerCase());
+      const ranked = tags.length > 0
+        ? [...rawItems].sort((a, b) => {
+            const score = (it: Item) => {
+              const hay = `${it.title ?? ''} ${it.description ?? ''}`.toLowerCase();
+              return tags.reduce((s, t) => (hay.includes(t) ? s + 1 : s), 0);
+            };
+            return score(b) - score(a);
+          })
+        : rawItems;
+
+      setItems(ranked as Item[]);
+      setCurrentIndex(0);
+    } catch {
+      setItems([]);
+      setCurrentIndex(0);
+      toast.error('Unable to load listings');
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleSwipe(direction: 'left' | 'right') {
@@ -342,53 +319,6 @@ export default function DiscoverScreen({ navigation }: Props) {
       {/* Undo pill */}
       <UndoPill undoAnim={undoAnim} onUndo={handleUndo} />
 
-      {/* Action buttons */}
-      {currentItem && !loading && (
-        <MotiView
-          from={{ opacity: 0, translateY: 20 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'spring', damping: 16, stiffness: 160, delay: 200 }}
-          style={styles.actions}
-        >
-          {/* Pass button */}
-          <View style={styles.actionBtnContainer}>
-            <Animated.View style={[styles.passGlowRing, passGlowStyle]} pointerEvents="none" />
-            <PressableScale
-              style={[styles.actionBtn, styles.passBtn]}
-              onPress={() => {
-                passGlow.value = withSequence(withTiming(1, { duration: 80 }), withTiming(0, { duration: 400 }));
-                handleSwipe('left');
-              }}
-              hapticOnPressIn="tap"
-              accessibilityLabel="Pass on this item"
-              accessibilityRole="button"
-            >
-              <Text style={styles.passBtnText}>✕</Text>
-            </PressableScale>
-          </View>
-
-          {/* Trade button with persistent pulse ring */}
-          <View style={styles.actionBtnContainer}>
-            <Animated.View style={[styles.tradeGlowRing, pulseRingStyle]} pointerEvents="none" />
-            <Animated.View style={[styles.tradeGlowRing, tradeGlowStyle2]} pointerEvents="none" />
-            <PressableScale
-              style={[styles.actionBtn, styles.tradeBtn]}
-              onPress={() => {
-                tradeGlow.value = withSequence(withTiming(1, { duration: 80 }), withTiming(0, { duration: 500 }));
-                handleSwipe('right');
-              }}
-              hapticOnPressIn="press"
-              pressedScale={0.92}
-              accessibilityLabel="Trade for this item"
-              accessibilityRole="button"
-            >
-              <GradientView colors={[colors.primary, colors.primaryDark]} style={styles.tradeGradient}>
-                <Text style={styles.tradeBtnText}>♻</Text>
-              </GradientView>
-            </PressableScale>
-          </View>
-        </MotiView>
-      )}
 
       <MatchModal
         visible={matchModal.visible}
@@ -434,46 +364,6 @@ const styles = StyleSheet.create({
   categoryChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   categoryText: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
   categoryTextActive: { color: '#fff', fontWeight: '700' },
-  cardArea: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+  cardArea: { flex: 1, alignItems: 'center', justifyContent: 'flex-start', paddingHorizontal: 16, paddingTop: 14 },
   cardBehind: { position: 'absolute' },
-  actions: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 40,
-    paddingBottom: 16,
-    paddingTop: 8,
-  },
-  actionBtnContainer: { alignItems: 'center', justifyContent: 'center' },
-  actionBtn: { width: 64, height: 64, borderRadius: 32, justifyContent: 'center', alignItems: 'center' },
-  passBtn: {
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 2, borderColor: colors.danger,
-    shadowColor: colors.danger,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  passBtnText: { fontSize: 26, color: colors.danger, fontWeight: '700' },
-  passGlowRing: {
-    position: 'absolute',
-    width: 64, height: 64, borderRadius: 32,
-    backgroundColor: colors.danger,
-  },
-  tradeBtn: {
-    width: 72, height: 72, borderRadius: 36, overflow: 'hidden',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.55,
-    shadowRadius: 14,
-    elevation: 8,
-  },
-  tradeGradient: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  tradeBtnText: { fontSize: 30, color: '#fff' },
-  tradeGlowRing: {
-    position: 'absolute',
-    width: 72, height: 72, borderRadius: 36,
-    backgroundColor: colors.primary,
-  },
 });

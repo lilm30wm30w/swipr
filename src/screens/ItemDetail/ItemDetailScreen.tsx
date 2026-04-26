@@ -36,6 +36,8 @@ export default function ItemDetailScreen({ route, navigation }: Props) {
   const { user } = useAuth();
   const [item, setItem] = useState<Item | null>(null);
   const [similar, setSimilar] = useState<Item[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [imageIdx, setImageIdx] = useState(0);
   const scrollY = useSharedValue(0);
   const enter = useSharedValue(0);
@@ -51,12 +53,22 @@ export default function ItemDetailScreen({ route, navigation }: Props) {
   }, [itemId]);
 
   async function load() {
-    const { data } = await supabase
-      .from('items')
-      .select('*, profiles(id, username, full_name, avatar_url, bio, location)')
-      .eq('id', itemId)
-      .single();
-    if (data) {
+    setLoading(true);
+    setLoadError(null);
+
+    try {
+      const { data } = await supabase
+        .from('items')
+        .select('*, profiles(id, username, full_name, avatar_url, bio, location)')
+        .eq('id', itemId)
+        .single();
+      if (!data) {
+        setItem(null);
+        setSimilar([]);
+        setLoadError('Item not found');
+        return;
+      }
+
       setItem(data as Item);
       const { data: more } = await supabase
         .from('items')
@@ -66,7 +78,13 @@ export default function ItemDetailScreen({ route, navigation }: Props) {
         .neq('id', data.id)
         .neq('user_id', user?.id ?? '')
         .limit(6);
-      if (more) setSimilar(more as Item[]);
+      setSimilar((more as Item[]) ?? []);
+    } catch {
+      setItem(null);
+      setSimilar([]);
+      setLoadError('Unable to load this item');
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -84,10 +102,25 @@ export default function ItemDetailScreen({ route, navigation }: Props) {
     transform: [{ scale: interpolate(enter.value, [0, 1], [0.94, 1]) }],
   }));
 
-  if (!item) {
+  if (loading) {
     return (
       <SafeAreaView style={[styles.container, styles.center]}>
         <ActivityIndicator color={colors.primary} />
+      </SafeAreaView>
+    );
+  }
+
+  if (!item) {
+    return (
+      <SafeAreaView style={[styles.container, styles.center]}>
+        <View style={styles.errorState}>
+          <Text style={styles.errorTitle}>{loadError ?? 'Item unavailable'}</Text>
+          <PressableScale onPress={load} style={styles.retryBtn} pressedScale={0.96} hapticOnPressIn="tap">
+            <GradientView colors={[colors.primary, colors.primaryDark]} style={styles.retryGradient}>
+              <Text style={styles.retryText}>Retry</Text>
+            </GradientView>
+          </PressableScale>
+        </View>
       </SafeAreaView>
     );
   }
@@ -231,6 +264,11 @@ export default function ItemDetailScreen({ route, navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: 'transparent' },
   center: { justifyContent: 'center', alignItems: 'center' },
+  errorState: { width: '100%', maxWidth: 320, gap: spacing.md, paddingHorizontal: spacing.lg },
+  errorTitle: { ...typography.subhead, color: colors.text, textAlign: 'center' },
+  retryBtn: { borderRadius: radius.md, overflow: 'hidden' },
+  retryGradient: { paddingVertical: spacing.md, alignItems: 'center' },
+  retryText: { color: '#fff', fontSize: 15, fontWeight: '800' },
   stickyHeader: {
     position: 'absolute', top: 0, left: 0, right: 0,
     zIndex: 10,

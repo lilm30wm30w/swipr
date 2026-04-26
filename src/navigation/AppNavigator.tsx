@@ -8,8 +8,6 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
-  interpolate,
-  Extrapolation,
 } from 'react-native-reanimated';
 import { useAuth } from '../context/AuthContext';
 import { useMatches } from '../context/MatchesContext';
@@ -59,7 +57,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
     bgScale.value = withSpring(focused ? 1 : 0.6, { damping: 12, stiffness: 240 });
   }, [focused]);
 
-  const emojiStyle = useAnimatedStyle(() => ({
+  const iconStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
 
@@ -71,7 +69,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   return (
     <View style={styles.tabIconWrap}>
       <Animated.View style={[styles.tabIconBg, bgStyle]} />
-      <Animated.Text style={[styles.tabEmoji, emojiStyle]}>
+      <Animated.Text style={[styles.tabIconText, iconStyle]}>
         {icons[name]}
       </Animated.Text>
     </View>
@@ -255,7 +253,7 @@ const styles = StyleSheet.create({
     width: 44, height: 30, borderRadius: 16,
     backgroundColor: `${colors.primary}28`,
   },
-  tabEmoji: { fontSize: 20 },
+  tabIconText: { fontSize: 20, color: colors.text },
   tabLabel: { fontSize: 11, fontWeight: '500', color: colors.textMuted, marginTop: 2 },
   tabLabelFocused: { fontWeight: '700', color: colors.primaryLight },
   tabBadge: {

@@ -84,34 +84,45 @@ export default function MatchesScreen() {
   useEffect(() => { if (latestNewMatch) fetchMatches(); }, [latestNewMatch]);
 
   async function fetchMatches() {
-    if (!user) return;
-    setLoading(true);
-    const { data } = await supabase
-      .from('matches')
-      .select(`
-        *,
-        profiles_user1:profiles!matches_user1_id_fkey(id, username, full_name, avatar_url),
-        profiles_user2:profiles!matches_user2_id_fkey(id, username, full_name, avatar_url),
-        items_item1:items!matches_item1_id_fkey(id, title, images),
-        items_item2:items!matches_item2_id_fkey(id, title, images)
-      `)
-      .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
-      .order('created_at', { ascending: false });
-
-    if (data) {
-      const enriched = data.map((m: any) => {
-        const isUser1 = m.user1_id === user.id;
-        return {
-          ...m,
-          other_profile: isUser1 ? m.profiles_user2 : m.profiles_user1,
-          my_item: isUser1 ? m.items_item1 : m.items_item2,
-          other_item: isUser1 ? m.items_item2 : m.items_item1,
-        };
-      });
-      setMatches(enriched);
+    if (!user) {
+      setMatches([]);
+      setLoading(false);
+      setRefreshing(false);
+      return;
     }
-    setLoading(false);
-    setRefreshing(false);
+
+    try {
+      setLoading(true);
+      const { data } = await supabase
+        .from('matches')
+        .select(`
+          *,
+          profiles_user1:profiles!matches_user1_id_fkey(id, username, full_name, avatar_url),
+          profiles_user2:profiles!matches_user2_id_fkey(id, username, full_name, avatar_url),
+          items_item1:items!matches_item1_id_fkey(id, title, images),
+          items_item2:items!matches_item2_id_fkey(id, title, images)
+        `)
+        .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
+        .order('created_at', { ascending: false });
+
+      if (data) {
+        const enriched = data.map((m: any) => {
+          const isUser1 = m.user1_id === user.id;
+          return {
+            ...m,
+            other_profile: isUser1 ? m.profiles_user2 : m.profiles_user1,
+            my_item: isUser1 ? m.items_item1 : m.items_item2,
+            other_item: isUser1 ? m.items_item2 : m.items_item1,
+          };
+        });
+        setMatches(enriched);
+      } else {
+        setMatches([]);
+      }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }
 
   return (

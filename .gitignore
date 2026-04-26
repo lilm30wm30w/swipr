@@ -44,3 +44,6 @@ yarn-error.*
 # editor / local dev config
 .vscode/
 .mcp.json
+
+# Supabase local CLI state
+supabase/.temp/

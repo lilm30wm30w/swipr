@@ -141,6 +141,15 @@ export default function ChatScreen({ route, navigation }: Props) {
   }, [navigation, matchedUser, theyAreTyping]);
 
   useEffect(() => {
+    knownIds.current.clear();
+    setMessages([]);
+    setInput('');
+    setTheyAreTyping(false);
+    setMatch(null);
+    setMyItem(null);
+    setTheirItem(null);
+    setProposal(null);
+
     fetchMessages();
     fetchMatch();
     fetchProposal();
@@ -188,31 +197,39 @@ export default function ChatScreen({ route, navigation }: Props) {
 
   async function fetchMatch() {
     if (!user) return;
-    const { data } = await supabase
-      .from('matches')
-      .select(`
-        *,
-        items_item1:items!matches_item1_id_fkey(id, user_id, title, images, category, condition, description, is_available, created_at),
-        items_item2:items!matches_item2_id_fkey(id, user_id, title, images, category, condition, description, is_available, created_at)
-      `)
-      .eq('id', matchId)
-      .single();
-    if (!data) return;
-    const isUser1 = data.user1_id === user.id;
-    setMatch(data as Match);
-    setMyItem(isUser1 ? (data as any).items_item1 : (data as any).items_item2);
-    setTheirItem(isUser1 ? (data as any).items_item2 : (data as any).items_item1);
+    try {
+      const { data } = await supabase
+        .from('matches')
+        .select(`
+          *,
+          items_item1:items!matches_item1_id_fkey(id, user_id, title, images, category, condition, description, is_available, created_at),
+          items_item2:items!matches_item2_id_fkey(id, user_id, title, images, category, condition, description, is_available, created_at)
+        `)
+        .eq('id', matchId)
+        .single();
+      if (!data) return;
+      const isUser1 = data.user1_id === user.id;
+      setMatch(data as Match);
+      setMyItem(isUser1 ? (data as any).items_item1 : (data as any).items_item2);
+      setTheirItem(isUser1 ? (data as any).items_item2 : (data as any).items_item1);
+    } catch {
+      toast.error('Unable to load trade details');
+    }
   }
 
   async function fetchProposal() {
-    const { data } = await supabase
-      .from('trade_proposals')
-      .select('*')
-      .eq('match_id', matchId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    setProposal((data as TradeProposal) ?? null);
+    try {
+      const { data } = await supabase
+        .from('trade_proposals')
+        .select('*')
+        .eq('match_id', matchId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setProposal((data as TradeProposal) ?? null);
+    } catch {
+      toast.error('Unable to load trade proposal');
+    }
   }
 
   async function handlePropose() {
@@ -291,14 +308,18 @@ export default function ChatScreen({ route, navigation }: Props) {
   }
 
   async function fetchMessages() {
-    const { data } = await supabase
-      .from('messages')
-      .select('*')
-      .eq('match_id', matchId)
-      .order('created_at', { ascending: true });
-    if (data) {
-      data.forEach((m) => knownIds.current.add(m.id));
-      setMessages(data);
+    try {
+      const { data } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('match_id', matchId)
+        .order('created_at', { ascending: true });
+      if (data) {
+        data.forEach((m) => knownIds.current.add(m.id));
+        setMessages(data);
+      }
+    } catch {
+      toast.error('Unable to load messages');
     }
   }
 
