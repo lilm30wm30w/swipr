@@ -1,9 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Image,
-  Alert, ActivityIndicator,
+  Alert, ActivityIndicator, Pressable,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MotiView } from 'moti';
 import * as ImagePicker from 'expo-image-picker';
 import GradientView from '../../components/GradientView';
@@ -22,6 +22,7 @@ import { haptic } from '../../lib/haptics';
 
 export default function ProfileScreen() {
   const { user, profile, signOut, refreshProfile } = useAuth();
+  const insets = useSafeAreaInsets();
   const toast = useToast();
   const [myItems, setMyItems] = useState<Item[]>([]);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -145,14 +146,22 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <PressableScale
-        style={styles.settingsBtn}
-        onPress={() => setSettingsOpen(true)}
-        hapticOnPressIn="tap"
-        pressedScale={0.88}
+      <Pressable
+        style={({ pressed }) => [
+          styles.settingsBtn,
+          { top: insets.top + 18 },
+          pressed && styles.settingsBtnPressed,
+        ]}
+        onPress={() => {
+          haptic.tap();
+          setSettingsOpen(true);
+        }}
+        accessibilityLabel="Open settings"
+        accessibilityRole="button"
+        hitSlop={8}
       >
         <Text style={styles.settingsIcon}>⚙️</Text>
-      </PressableScale>
+      </Pressable>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
         {/* Avatar + identity */}
@@ -252,14 +261,30 @@ export default function ProfileScreen() {
       </ScrollView>
 
       <ProfileEditSheet visible={editOpen} onClose={() => setEditOpen(false)} />
-      <SettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsSheet
+        visible={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onEditProfile={() => setEditOpen(true)}
+        onSignOut={confirmSignOut}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  settingsBtn: { position: 'absolute', top: 16, right: 20, zIndex: 10, padding: 6 },
+  settingsBtn: {
+    position: 'absolute',
+    right: 20,
+    zIndex: 10,
+    elevation: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  settingsBtnPressed: { opacity: 0.72, transform: [{ scale: 0.94 }] },
   settingsIcon: { fontSize: 22 },
   content: { padding: 20, paddingTop: 96, paddingBottom: 40 },
   profileHeader: { alignItems: 'center', gap: 6, marginBottom: 24 },
